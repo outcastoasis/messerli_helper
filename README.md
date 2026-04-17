@@ -1,28 +1,28 @@
 # Messerli Helper
 
-Messerli Helper ist eine lokale Windows-Desktop-App fuer die Tagesplanung und die anschliessende Tastatur-Automation fuer die Messerli-Zeiterfassung. Die Anwendung kombiniert eine einfache Zeitleisten-UI mit lokaler JSON-Speicherung und einem PyInstaller-/Inno-Setup-Build fuer die Verteilung.
+Messerli Helper ist eine lokale Windows-Desktop-App für die Tagesplanung und die anschliessende Tastatur-Automation für die Messerli-Zeiterfassung. Die Anwendung kombiniert eine einfache Zeitleisten-UI mit lokaler JSON-Speicherung und einem PyInstaller-/Inno-Setup-Build für die Verteilung.
 
 ## Funktionsumfang
 
 - Tagesplanung im 15-Minuten-Raster von 06:00 bis 18:00
 - Zeitblöcke per Drag anlegen, verschieben, vergrössern, verkleinern, teilen und löschen
-- Blocktypen fuer Arbeit, Pause und Kompensation
+- Blocktypen für Arbeit, Pause und Kompensation
 - Projektvorlagen mit lokaler Speicherung, Standardbemerkungen und Favoriten
-- Validierung gegen Ueberlappungen, ungueltige Zeiträume und fehlende Pflichtfelder
+- Validierung gegen Ueberlappungen, ungültige Zeiträume und fehlende Pflichtfelder
 - Produktivzeit-Anzeige mit Soll/Ist-Differenz pro Wochentag
-- Automation mit Countdown und sofortigem Abbruch ueber `ESC`
+- Automation mit Countdown und sofortigem Abbruch über `ESC`
 - Lokales Logging unter `%LOCALAPPDATA%\MesserliHelper\logs`
 
 ## Voraussetzungen
 
 - Windows 10 oder neuer
 - Python 3.12 oder neuer
-- geöffnete Messerli-Zeiterfassung fuer die eigentliche Automation
-- optional: Inno Setup 6 (`ISCC.exe`) fuer den Installer-Build
+- geöffnete Messerli-Zeiterfassung für die eigentliche Automation
+- optional: Inno Setup 6 (`ISCC.exe`) für den Installer-Build
 
 ## Installation und Start
 
-Fuer den lokalen Start reichen die Runtime-Abhängigkeiten:
+Für den lokalen Start reichen die Runtime-Abhängigkeiten:
 
 ```powershell
 python -m venv .venv
@@ -31,13 +31,13 @@ python -m pip install -r requirements.txt
 python -m app.main
 ```
 
-Fuer Tests, PyInstaller und Packaging:
+Für Tests, PyInstaller und Packaging:
 
 ```powershell
 python -m pip install -r requirements-dev.txt
 ```
 
-Die App speichert ihre Daten standardmässig unter `%LOCALAPPDATA%\MesserliHelper`. Beim ersten Start werden die Beispielvorlagen aus [examples/project_templates.json](examples/project_templates.json) automatisch in den lokalen Datenspeicher uebernommen.
+Die App speichert ihre Daten standardmässig unter `%LOCALAPPDATA%\MesserliHelper`. Beim ersten Start werden die Beispielvorlagen aus [examples/project_templates.json](examples/project_templates.json) automatisch in den lokalen Datenspeicher übernommen.
 
 ## Bedienung
 
@@ -45,8 +45,8 @@ Die App speichert ihre Daten standardmässig unter `%LOCALAPPDATA%\MesserliHelpe
 2. In der Tagesansicht einen Zeitblock per Drag aufziehen.
 3. Blocktyp, Zeitraum, Projektnummer und Bemerkung festlegen.
 4. Weitere Blöcke erstellen oder bestehende Einträge per Doppelklick bearbeiten.
-5. Rechts die Validierung und die Produktivzeit pruefen.
-6. Auf `Ausfuellen in Messerli` klicken.
+5. Rechts die Validierung und die Produktivzeit prüfen.
+6. Auf `Ausfüllen in Messerli` klicken.
 7. Das erste leere Auftragsfeld in Messerli anklicken und den Countdown bestätigen.
 8. Die Automation bei Bedarf jederzeit mit `ESC` abbrechen.
 
@@ -66,9 +66,9 @@ Die Tests decken aktuell unter anderem Zeitkonvertierung, Validierung, Sortierun
 .\build_exe.ps1
 ```
 
-Der Standard-Build erzeugt eine gebuendelte Anwendung unter `dist\MesserliHelper\MesserliHelper.exe`.
+Der Standard-Build erzeugt eine gebündelte Anwendung unter `dist\MesserliHelper\MesserliHelper.exe`.
 
-Fuer eine einzelne EXE-Datei:
+Für eine einzelne EXE-Datei:
 
 ```powershell
 .\build_exe.ps1 -OneFile
@@ -76,7 +76,7 @@ Fuer eine einzelne EXE-Datei:
 
 Dann liegt das Ergebnis unter `dist\MesserliHelper.exe`.
 
-Der Build läuft ueber [MesserliHelper.spec](MesserliHelper.spec). Vor dem Packaging werden die Dateien `packaging/windows/version_info.txt` und `packaging/windows/installer_metadata.iss` automatisch aus den Metadaten in `app/metadata.py` erzeugt.
+Der Build läuft über [MesserliHelper.spec](MesserliHelper.spec). Vor dem Packaging werden die Dateien `packaging/windows/version_info.txt` und `packaging/windows/installer_metadata.iss` automatisch aus den Metadaten in `app/metadata.py` erzeugt.
 
 ### Installer bauen
 
@@ -84,7 +84,7 @@ Der Build läuft ueber [MesserliHelper.spec](MesserliHelper.spec). Vor dem Packa
 .\build_installer.ps1
 ```
 
-Optional kann der EXE-Build uebersprungen werden:
+Optional kann der EXE-Build übersprungen werden:
 
 ```powershell
 .\build_installer.ps1 -SkipExeBuild
