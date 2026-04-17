@@ -1,0 +1,17 @@
+[
+  {
+    "project_number": "25344",
+    "display_name": "Installation Musterprojekt",
+    "default_remark": "Sys. Installation"
+  },
+  {
+    "project_number": "26001",
+    "display_name": "AVOR Musterprojekt",
+    "default_remark": "Sys. AVOR"
+  },
+  {
+    "project_number": "27050",
+    "display_name": "Admin intern",
+    "default_remark": "Admin"
+  }
+]

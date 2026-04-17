@@ -1,0 +1,321 @@
+from __future__ import annotations
+
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QContextMenuEvent,
+    QMouseEvent,
+    QPainter,
+    QPen,
+)
+from PySide6.QtWidgets import QMenu, QWidget
+
+from app.constants import (
+    REMARK_COLORS,
+    SLOT_MINUTES,
+    TIMELINE_END_HOUR,
+    TIMELINE_START_HOUR,
+)
+from app.models.time_block import TimeBlock
+from app.utils.time_utils import minutes_to_time_text, snap_minutes
+from app.validation.validators import sort_blocks
+
+
+class DayTimelineWidget(QWidget):
+    create_requested = Signal(str, str)
+    edit_requested = Signal(str)
+    move_or_resize_requested = Signal(str, str, str)
+    action_requested = Signal(str, str)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.blocks: list[TimeBlock] = []
+        self.left_gutter = 76
+        self.top_padding = 16
+        self.minimum_block_width = 240
+        self.maximum_block_width = 280
+        self.right_padding = 24
+        self.slot_height = 30
+        self.handle_size = 8
+        self._block_rects: dict[str, QRect] = {}
+        self._drag_mode: str | None = None
+        self._drag_block_id: str | None = None
+        self._drag_start_minutes: int | None = None
+        self._drag_origin_minutes: int | None = None
+        self._preview_start: int | None = None
+        self._preview_end: int | None = None
+        self.setMouseTracking(True)
+
+    def set_blocks(self, blocks: list[TimeBlock]) -> None:
+        self.blocks = sort_blocks(blocks)
+        self.updateGeometry()
+        self.update()
+
+    def sizeHint(self) -> QSize:
+        total_slots = ((TIMELINE_END_HOUR - TIMELINE_START_HOUR) * 60) // SLOT_MINUTES
+        height = self.top_padding * 2 + total_slots * self.slot_height
+        width = self.left_gutter + self.maximum_block_width + self.right_padding
+        return QSize(width, height)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#F8FAFD"))
+        self._draw_grid(painter)
+        self._draw_blocks(painter)
+        self._draw_preview(painter)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        block = self._block_at(event.position().toPoint())
+        if block is not None:
+            self.edit_requested.emit(block.id)
+        super().mouseDoubleClickEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.LeftButton:
+            super().mousePressEvent(event)
+            return
+
+        point = event.position().toPoint()
+        block = self._block_at(point)
+        snapped_minutes = self._point_to_minutes(point)
+        self._preview_start = None
+        self._preview_end = None
+
+        if block is None:
+            self._drag_mode = "create"
+            start_minutes = self._point_to_minutes(point, rounding="floor")
+            self._drag_start_minutes = start_minutes
+            self._preview_start = start_minutes
+            self._preview_end = start_minutes + SLOT_MINUTES
+            self.update()
+            return
+
+        rect = self._block_rects[block.id]
+        self._drag_block_id = block.id
+        if abs(point.y() - rect.top()) <= self.handle_size:
+            self._drag_mode = "resize_top"
+        elif abs(point.y() - rect.bottom()) <= self.handle_size:
+            self._drag_mode = "resize_bottom"
+        else:
+            self._drag_mode = "move"
+            self._drag_origin_minutes = snapped_minutes
+        self._preview_start = block.start_minutes
+        self._preview_end = block.end_minutes
+        self.update()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        point = event.position().toPoint()
+        if self._drag_mode is None:
+            self._update_cursor(point)
+            super().mouseMoveEvent(event)
+            return
+
+        current_minutes = self._point_to_minutes(point)
+        if self._drag_mode == "create" and self._drag_start_minutes is not None:
+            start = min(self._drag_start_minutes, current_minutes)
+            end = max(self._drag_start_minutes, current_minutes)
+            if start == end:
+                end += SLOT_MINUTES
+            self._preview_start = start
+            self._preview_end = min(end, TIMELINE_END_HOUR * 60)
+        else:
+            block = self._find_block(self._drag_block_id)
+            if block is None:
+                return
+            if self._drag_mode == "move" and self._drag_origin_minutes is not None:
+                delta = current_minutes - self._drag_origin_minutes
+                duration = block.duration_minutes
+                start = max(TIMELINE_START_HOUR * 60, block.start_minutes + delta)
+                start = min(start, TIMELINE_END_HOUR * 60 - duration)
+                self._preview_start = start
+                self._preview_end = start + duration
+            elif self._drag_mode == "resize_top":
+                new_start = min(current_minutes, block.end_minutes - SLOT_MINUTES)
+                new_start = max(new_start, TIMELINE_START_HOUR * 60)
+                self._preview_start = new_start
+                self._preview_end = block.end_minutes
+            elif self._drag_mode == "resize_bottom":
+                new_end = max(current_minutes, block.start_minutes + SLOT_MINUTES)
+                new_end = min(new_end, TIMELINE_END_HOUR * 60)
+                self._preview_start = block.start_minutes
+                self._preview_end = new_end
+
+        self.update()
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.LeftButton:
+            super().mouseReleaseEvent(event)
+            return
+
+        if (
+            self._drag_mode == "create"
+            and self._preview_start is not None
+            and self._preview_end is not None
+        ):
+            if self._preview_end - self._preview_start >= SLOT_MINUTES:
+                self.create_requested.emit(
+                    minutes_to_time_text(self._preview_start),
+                    minutes_to_time_text(self._preview_end),
+                )
+        elif (
+            self._drag_block_id
+            and self._preview_start is not None
+            and self._preview_end is not None
+        ):
+            block = self._find_block(self._drag_block_id)
+            if block is not None and (
+                self._preview_start != block.start_minutes
+                or self._preview_end != block.end_minutes
+            ):
+                self.move_or_resize_requested.emit(
+                    block.id,
+                    minutes_to_time_text(self._preview_start),
+                    minutes_to_time_text(self._preview_end),
+                )
+
+        self._drag_mode = None
+        self._drag_block_id = None
+        self._drag_start_minutes = None
+        self._drag_origin_minutes = None
+        self._preview_start = None
+        self._preview_end = None
+        self.update()
+        super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        block = self._block_at(event.pos())
+        if block is None:
+            return
+        menu = QMenu(self)
+        edit_action = QAction("Bearbeiten", self)
+        split_action = QAction("Teilen", self)
+        delete_action = QAction("Löschen", self)
+
+        edit_action.triggered.connect(lambda: self.edit_requested.emit(block.id))
+        split_action.triggered.connect(
+            lambda: self.action_requested.emit("split", block.id)
+        )
+        delete_action.triggered.connect(
+            lambda: self.action_requested.emit("delete", block.id)
+        )
+
+        menu.addAction(edit_action)
+        menu.addAction(split_action)
+        menu.addSeparator()
+        menu.addAction(delete_action)
+        menu.exec(event.globalPos())
+
+    def _draw_grid(self, painter: QPainter) -> None:
+        total_slots = ((TIMELINE_END_HOUR - TIMELINE_START_HOUR) * 60) // SLOT_MINUTES
+        grid_width = self._grid_width()
+
+        painter.setPen(QPen(QColor("#CBD5E1"), 1))
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawRoundedRect(
+            self.left_gutter,
+            self.top_padding,
+            grid_width,
+            total_slots * self.slot_height,
+            12,
+            12,
+        )
+
+        for slot in range(total_slots + 1):
+            y = self.top_padding + slot * self.slot_height
+            is_hour = slot % 4 == 0
+            painter.setPen(QPen(QColor("#C2CDDC" if is_hour else "#E2E8F0"), 1))
+            painter.drawLine(self.left_gutter, y, self.left_gutter + grid_width, y)
+            if slot < total_slots and is_hour:
+                label_minutes = TIMELINE_START_HOUR * 60 + slot * SLOT_MINUTES
+                painter.setPen(QPen(QColor("#334155"), 1))
+                painter.drawText(12, y + 5, minutes_to_time_text(label_minutes))
+
+    def _draw_blocks(self, painter: QPainter) -> None:
+        self._block_rects = {}
+        for block in self.blocks:
+            rect = self._rect_for_block(block)
+            self._block_rects[block.id] = rect
+            color = QColor(REMARK_COLORS.get(block.remark, "#64748B"))
+            painter.setPen(QPen(color.darker(140), 1))
+            painter.setBrush(color)
+            painter.drawRoundedRect(rect, 8, 8)
+            painter.setPen(QPen(self._text_color_for_background(color), 1))
+            text = f"{block.display_project()}\n{block.remark}\n{block.start_time} - {block.end_time}"
+            painter.drawText(
+                rect.adjusted(8, 6, -8, -6), Qt.AlignLeft | Qt.TextWordWrap, text
+            )
+
+    def _draw_preview(self, painter: QPainter) -> None:
+        if self._preview_start is None or self._preview_end is None:
+            return
+        rect = self._rect_for_range(self._preview_start, self._preview_end)
+        painter.setPen(QPen(QColor("#1D4ED8"), 2, Qt.DashLine))
+        painter.setBrush(QColor(59, 130, 246, 60))
+        painter.drawRoundedRect(rect, 8, 8)
+
+    def _point_to_minutes(self, point: QPoint, rounding: str = "nearest") -> int:
+        relative_y = max(0, point.y() - self.top_padding)
+        if rounding == "floor":
+            slots = relative_y // self.slot_height
+        else:
+            slots = round(relative_y / self.slot_height)
+        minutes = TIMELINE_START_HOUR * 60 + slots * SLOT_MINUTES
+        minutes = snap_minutes(minutes)
+        minutes = max(TIMELINE_START_HOUR * 60, min(minutes, TIMELINE_END_HOUR * 60))
+        return minutes
+
+    def _rect_for_block(self, block: TimeBlock) -> QRect:
+        return self._rect_for_range(block.start_minutes, block.end_minutes)
+
+    def _rect_for_range(self, start_minutes: int, end_minutes: int) -> QRect:
+        start_slot = (start_minutes - TIMELINE_START_HOUR * 60) / SLOT_MINUTES
+        end_slot = (end_minutes - TIMELINE_START_HOUR * 60) / SLOT_MINUTES
+        top = self.top_padding + round(start_slot * self.slot_height)
+        height = max(
+            self.slot_height, round((end_slot - start_slot) * self.slot_height)
+        )
+        return QRect(self.left_gutter + 4, top + 1, self._grid_width() - 8, height - 2)
+
+    def _block_at(self, point: QPoint) -> TimeBlock | None:
+        for block in reversed(self.blocks):
+            rect = self._block_rects.get(block.id)
+            if rect and rect.contains(point):
+                return block
+        return None
+
+    def _find_block(self, block_id: str | None) -> TimeBlock | None:
+        if not block_id:
+            return None
+        return next((block for block in self.blocks if block.id == block_id), None)
+
+    def _update_cursor(self, point: QPoint) -> None:
+        block = self._block_at(point)
+        if block is None:
+            self.setCursor(Qt.CrossCursor)
+            return
+        rect = self._block_rects[block.id]
+        if (
+            abs(point.y() - rect.top()) <= self.handle_size
+            or abs(point.y() - rect.bottom()) <= self.handle_size
+        ):
+            self.setCursor(Qt.SizeVerCursor)
+        else:
+            self.setCursor(Qt.OpenHandCursor)
+
+    @staticmethod
+    def _text_color_for_background(color: QColor) -> QColor:
+        brightness = (
+            color.red() * 299 + color.green() * 587 + color.blue() * 114
+        ) / 1000
+        return QColor("#111111") if brightness > 160 else QColor("#FFFFFF")
+
+    def _grid_width(self) -> int:
+        available_width = self.width() - self.left_gutter - self.right_padding
+        return min(
+            self.maximum_block_width,
+            max(self.minimum_block_width, available_width),
+        )
