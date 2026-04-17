@@ -8,7 +8,7 @@ Messerli Helper ist eine lokale Windows-Desktop-App für die Tagesplanung und di
 - Zeitblöcke per Drag anlegen, verschieben, vergrössern, verkleinern, teilen und löschen
 - Blocktypen für Arbeit, Pause und Kompensation
 - Projektvorlagen mit lokaler Speicherung, Standardbemerkungen und Favoriten
-- Validierung gegen Ueberlappungen, ungültige Zeiträume und fehlende Pflichtfelder
+- Validierung gegen Überlappungen, ungültige Zeiträume und fehlende Pflichtfelder
 - Produktivzeit-Anzeige mit Soll/Ist-Differenz pro Wochentag
 - Automation mit Countdown und sofortigem Abbruch über `ESC`
 - Lokales Logging unter `%LOCALAPPDATA%\MesserliHelper\logs`
