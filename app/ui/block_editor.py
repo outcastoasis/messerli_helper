@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from PySide6.QtCore import QSignalBlocker, Qt, QTime
+from PySide6.QtCore import QPoint, QRect, QSize, QSignalBlocker, Qt, QTime
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
+    QLayoutItem,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -26,6 +27,7 @@ from app.constants import (
     BREAK_REMARKS,
     COMPENSATION_REMARK,
     COMPENSATION_REMARKS,
+    MAX_FAVORITE_PROJECTS,
     SLOT_MINUTES,
     WORK_REMARKS,
 )
@@ -52,6 +54,90 @@ class QuarterHourTimeEdit(QTimeEdit):
             snapped_minute = 0
         adjusted = QTime(adjusted.hour(), snapped_minute)
         super().setTime(adjusted)
+
+
+class FlowLayout(QLayout):
+    """A simple left-to-right wrapping layout for variable-width controls."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._items: list[QLayoutItem] = []
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setSpacing(8)
+
+    def addItem(self, item: QLayoutItem) -> None:
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int) -> QLayoutItem | None:
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index: int) -> QLayoutItem | None:
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self) -> Qt.Orientations:
+        return Qt.Orientations()
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect: QRect) -> None:
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        size += QSize(
+            margins.left() + margins.right(), margins.top() + margins.bottom()
+        )
+        return size
+
+    def _do_layout(self, rect: QRect, test_only: bool) -> int:
+        margins = self.contentsMargins()
+        effective_rect = rect.adjusted(
+            margins.left(),
+            margins.top(),
+            -margins.right(),
+            -margins.bottom(),
+        )
+        x = effective_rect.x()
+        y = effective_rect.y()
+        line_height = 0
+        max_x = effective_rect.right()
+
+        for item in self._items:
+            hint = item.sizeHint()
+            next_x = x + hint.width()
+            if line_height > 0 and next_x > max_x + 1:
+                x = effective_rect.x()
+                y += line_height + self.spacing()
+                next_x = x + hint.width()
+                line_height = 0
+
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+
+            x = next_x + self.spacing()
+            line_height = max(line_height, hint.height())
+
+        if not self._items:
+            return margins.top() + margins.bottom()
+        return y + line_height - rect.y() + margins.bottom()
 
 
 class BlockEditorDialog(QDialog):
@@ -138,9 +224,9 @@ class BlockEditorDialog(QDialog):
 
     def _load_initial_state(self) -> None:
         if self.block.project_number:
-            self.project_combo.setEditText(self.block.project_number)
+            self._set_project_combo_text(self.block.project_number)
         elif self.preferences.last_project_number:
-            self.project_combo.setEditText(self.preferences.last_project_number)
+            self._set_project_combo_text(self.preferences.last_project_number)
 
         initial_type = (
             self.block.block_type
@@ -166,6 +252,7 @@ class BlockEditorDialog(QDialog):
 
     def _build_header(self) -> QWidget:
         header = QWidget()
+        header.setObjectName("PanelSurface")
         layout = QVBoxLayout(header)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -204,6 +291,7 @@ class BlockEditorDialog(QDialog):
 
     def _build_project_section(self) -> QWidget:
         container = QWidget()
+        container.setObjectName("PanelSurface")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -222,7 +310,8 @@ class BlockEditorDialog(QDialog):
         layout.addWidget(self.favorite_caption_label)
 
         self.favorite_projects_widget = QWidget()
-        favorite_layout = QHBoxLayout(self.favorite_projects_widget)
+        self.favorite_projects_widget.setObjectName("PanelSurface")
+        favorite_layout = FlowLayout(self.favorite_projects_widget)
         favorite_layout.setContentsMargins(0, 0, 0, 0)
         favorite_layout.setSpacing(8)
         for template in self._favorite_templates():
@@ -245,13 +334,13 @@ class BlockEditorDialog(QDialog):
                 )
             )
             self._favorite_project_buttons[template.id] = button
-            favorite_layout.addWidget(button, alignment=Qt.AlignLeft)
-        favorite_layout.addStretch()
+            favorite_layout.addWidget(button)
         layout.addWidget(self.favorite_projects_widget)
         return container
 
     def _build_time_section(self) -> QWidget:
         container = QWidget()
+        container.setObjectName("PanelSurface")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -301,6 +390,7 @@ class BlockEditorDialog(QDialog):
 
     def _build_remark_section(self) -> QWidget:
         container = QWidget()
+        container.setObjectName("PanelSurface")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
@@ -352,6 +442,7 @@ class BlockEditorDialog(QDialog):
         columns: int,
     ) -> None:
         section = QWidget()
+        section.setObjectName("PanelSurface")
         section_layout = QVBoxLayout(section)
         section_layout.setContentsMargins(0, 0, 0, 0)
         section_layout.setSpacing(6)
@@ -425,12 +516,10 @@ class BlockEditorDialog(QDialog):
         self._apply_template_by_id(template_id)
 
     def _apply_template_by_id(self, template_id: str | None) -> None:
-        template = next(
-            (item for item in self.templates if item.id == template_id), None
-        )
+        template = self._find_template_by_id(template_id)
         if template is None:
             return
-        self.project_combo.setEditText(template.project_number)
+        self._set_project_combo_text(template.display_label())
         self._update_project_button_state(template.project_number)
         if (
             self.block_type_combo.currentData() == BLOCK_TYPE_WORK
@@ -456,7 +545,7 @@ class BlockEditorDialog(QDialog):
             button.setEnabled(is_work_type)
 
         if not is_work_type:
-            self.project_combo.setEditText("")
+            self._set_project_combo_text("")
 
         for item_type, sections in self._remark_sections.items():
             for section in sections:
@@ -495,7 +584,7 @@ class BlockEditorDialog(QDialog):
 
     def _update_project_button_state(self, project_number: str) -> None:
         is_work_type = self.block_type_combo.currentData() == BLOCK_TYPE_WORK
-        normalized = project_number.strip()
+        normalized = self._project_number_from_text(project_number)
         for template in self._favorite_templates():
             button = self._favorite_project_buttons.get(template.id)
             if button is None:
@@ -509,7 +598,7 @@ class BlockEditorDialog(QDialog):
 
         if difference <= 0:
             self.duration_badge.setObjectName("DurationBadgeInvalid")
-            self.duration_badge.setText("Ungueltiger Zeitraum")
+            self.duration_badge.setText("Ungültiger Zeitraum")
         else:
             self.duration_badge.setObjectName("DurationBadge")
             self.duration_badge.setText(self._format_duration_text(difference))
@@ -551,7 +640,7 @@ class BlockEditorDialog(QDialog):
         start_time = self.start_edit.time().toString("HH:mm")
         end_time = self.end_edit.time().toString("HH:mm")
         project_number = (
-            self.project_combo.currentText().strip()
+            self._project_number_from_text(self.project_combo.currentText())
             if block_type == BLOCK_TYPE_WORK
             else ""
         )
@@ -588,6 +677,8 @@ class BlockEditorDialog(QDialog):
 
     @staticmethod
     def _default_remark_for_type(block_type: str) -> str:
+        if block_type == BLOCK_TYPE_BREAK:
+            return "Mittag"
         if block_type == BLOCK_TYPE_COMPENSATION:
             return COMPENSATION_REMARK
         return ""
@@ -596,7 +687,43 @@ class BlockEditorDialog(QDialog):
         return sorted(
             (template for template in self.templates if template.is_favorite),
             key=lambda item: (item.project_number, item.display_name, item.id),
-        )[:3]
+        )[:MAX_FAVORITE_PROJECTS]
+
+    def _find_template_by_id(self, template_id: str | None) -> ProjectTemplate | None:
+        if not template_id:
+            return None
+        return next((item for item in self.templates if item.id == template_id), None)
+
+    def _find_template_by_text(self, text: str) -> ProjectTemplate | None:
+        normalized = text.strip()
+        if not normalized:
+            return None
+        return next(
+            (
+                item
+                for item in self.templates
+                if normalized in {item.project_number, item.display_label()}
+            ),
+            None,
+        )
+
+    def _project_number_from_text(self, text: str) -> str:
+        template = self._find_template_by_text(text)
+        return template.project_number if template else text.strip()
+
+    def _set_project_combo_text(self, text: str) -> None:
+        normalized = text.strip()
+        template = self._find_template_by_text(normalized)
+        display_text = template.display_label() if template else normalized
+        blocker = QSignalBlocker(self.project_combo)
+        if template is None:
+            self.project_combo.setCurrentIndex(0)
+        else:
+            index = self.project_combo.findData(template.id)
+            if index >= 0:
+                self.project_combo.setCurrentIndex(index)
+        self.project_combo.setEditText(display_text)
+        del blocker
 
     @staticmethod
     def _to_qtime(value: str) -> QTime:
@@ -677,24 +804,27 @@ class BlockEditorDialog(QDialog):
         spinner_down_icon = (assets_dir / "spinner_down.svg").as_posix()
         return """
         QDialog#BlockEditorDialog {
-            background: #F7F4EE;
-            color: #2E2A25;
+            background: #F4F6FB;
+            color: #1E293B;
             border-radius: 22px;
+        }
+        QWidget#PanelSurface {
+            background: #F4F6FB;
         }
         QLabel#DialogTitle {
             font-size: 20px;
             font-weight: 700;
-            color: #2C2823;
+            color: #0F172A;
         }
         QLabel#DialogSubtitle {
             font-size: 12px;
-            color: #8A8279;
+            color: #475569;
         }
         QLabel#SectionLabel {
             font-size: 11px;
             font-weight: 700;
             letter-spacing: 1px;
-            color: #A09990;
+            color: #64748B;
             text-transform: uppercase;
         }
         QLabel#CaptionLabel,
@@ -702,45 +832,54 @@ class BlockEditorDialog(QDialog):
         QLabel#GroupLabel {
             font-size: 11px;
             font-weight: 600;
-            color: #9B948A;
+            color: #475569;
         }
         QLabel#ArrowLabel {
             font-size: 16px;
-            color: #9C9388;
+            color: #64748B;
             min-width: 18px;
         }
         QFrame#SectionDivider {
-            color: #DDD4C9;
-            background: #DDD4C9;
+            color: #D7DFEC;
+            background: #D7DFEC;
             max-height: 1px;
             border: none;
         }
         QWidget#SegmentedContainer {
-            background: #EDE6DC;
+            background: #E2E8F0;
             border-radius: 12px;
         }
         QPushButton#SegmentButton {
-            border: none;
+            border: 1px solid transparent;
             border-radius: 10px;
-            min-height: 30px;
-            padding: 6px 10px;
+            min-height: 32px;
+            max-height: 32px;
+            padding: 0px 10px;
             background: transparent;
-            color: #6D655C;
+            color: #475569;
             font-weight: 600;
         }
+        QPushButton#SegmentButton:hover {
+            background: #F8FAFC;
+            border-color: #94A3B8;
+            color: #0F172A;
+        }
         QPushButton#SegmentButton:checked {
-            background: #FFFFFF;
-            color: #2C2823;
-            border: 1px solid #D9CFC1;
+            background: #DBEAFE;
+            color: #1D4ED8;
+            border: 1px solid #60A5FA;
+            font-weight: 700;
         }
         QComboBox#ProjectCombo {
             min-height: 32px;
-            border: 1px solid #CFC5B8;
+            max-height: 32px;
+            border: 1px solid #C9D4E5;
             border-radius: 10px;
-            padding: 5px 12px;
-            background: #FFFCF7;
-            color: #2C2823;
-            selection-background-color: #DDE6FF;
+            padding: 0px 12px;
+            background: #FFFFFF;
+            color: #1E293B;
+            selection-background-color: #DBEAFE;
+            selection-color: #0F172A;
         }
         QComboBox#ProjectCombo::drop-down {
             subcontrol-origin: padding;
@@ -755,18 +894,19 @@ class BlockEditorDialog(QDialog):
             height: 8px;
         }
         QComboBox#ProjectCombo QAbstractItemView {
-            border: 1px solid #D8CEC1;
-            background: #FFFCF7;
-            selection-background-color: #E8EEFF;
-            selection-color: #2C2823;
+            border: 1px solid #C9D4E5;
+            background: #FFFFFF;
+            selection-background-color: #DBEAFE;
+            selection-color: #0F172A;
         }
         QTimeEdit#TimeEdit {
-            border: 1px solid #CFC5B8;
+            border: 1px solid #C9D4E5;
             border-radius: 10px;
             padding: 4px 40px 4px 12px;
-            background: #FFFCF7;
-            color: #2C2823;
-            selection-background-color: #DDE6FF;
+            background: #FFFFFF;
+            color: #1E293B;
+            selection-background-color: #DBEAFE;
+            selection-color: #0F172A;
         }
         QTimeEdit#TimeEdit::up-button,
         QTimeEdit#TimeEdit::down-button {
@@ -798,25 +938,26 @@ class BlockEditorDialog(QDialog):
         }
         QPushButton#ChipButton,
         QPushButton#RemarkButton {
-            border: 1px solid #CEC4B7;
+            border: 1px solid #CBD5E1;
             border-radius: 16px;
-            min-height: 30px;
-            padding: 6px 12px;
-            background: #FBF8F3;
-            color: #6C645B;
+            min-height: 32px;
+            max-height: 32px;
+            padding: 0px 12px;
+            background: #FFFFFF;
+            color: #0F172A;
             font-weight: 500;
         }
         QPushButton#ChipButton:hover,
         QPushButton#RemarkButton:hover {
-            border-color: #BFB3A3;
-            background: #FFFFFF;
+            border-color: #94A3B8;
+            background: #F8FAFC;
         }
         QPushButton#ChipButton:checked,
         QPushButton#RemarkButton:checked {
-            background: #E8EEFF;
-            border-color: #94AFFF;
-            color: #3452D1;
-            font-weight: 600;
+            background: #DBEAFE;
+            border-color: #60A5FA;
+            color: #1D4ED8;
+            font-weight: 700;
         }
         QLabel#DurationBadge,
         QLabel#DurationBadgeInvalid {
@@ -839,30 +980,35 @@ class BlockEditorDialog(QDialog):
         QPushButton#DangerActionButton,
         QPushButton#FooterGhostButton,
         QPushButton#FooterPrimaryButton {
-            min-height: 30px;
+            min-height: 32px;
+            max-height: 32px;
             border-radius: 10px;
             font-weight: 600;
-            padding: 5px 10px;
+            padding: 0px 10px;
         }
         QPushButton#SecondaryActionButton,
         QPushButton#FooterGhostButton {
-            background: #F4EFE7;
-            color: #645C54;
-            border: 1px solid #D5CABE;
+            background: #FFFFFF;
+            color: #0F172A;
+            border: 1px solid #CBD5E1;
         }
         QPushButton#DangerActionButton {
-            background: #FFF3F0;
-            color: #B24D3A;
-            border: 1px solid #E9C2BA;
+            background: #FEF2F2;
+            color: #B91C1C;
+            border: 1px solid #FECACA;
         }
         QPushButton#FooterPrimaryButton {
-            background: #4055D6;
+            background: #2563EB;
             color: #FFFFFF;
-            border: 1px solid #4055D6;
+            border: 1px solid #2563EB;
         }
         QPushButton#FooterPrimaryButton:hover {
-            background: #3548C3;
-            border-color: #3548C3;
+            background: #1D4ED8;
+            border-color: #1D4ED8;
+        }
+        QPushButton#FooterPrimaryButton:pressed {
+            background: #1E40AF;
+            border-color: #1E40AF;
         }
         """ % (
             combo_arrow_icon,

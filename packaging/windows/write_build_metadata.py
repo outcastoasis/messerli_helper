@@ -19,18 +19,12 @@ from app.metadata import (
     APP_PUBLISHER,
     APP_USER_MODEL_ID,
     APP_VERSION,
+    APP_VERSION_INFO,
 )
 
 
-def version_tuple(version: str) -> tuple[int, int, int, int]:
-    parts = [int(part) for part in version.split(".")]
-    while len(parts) < 4:
-        parts.append(0)
-    return tuple(parts[:4])
-
-
 def write_version_info(target: Path) -> None:
-    major, minor, patch, build = version_tuple(APP_VERSION)
+    major, minor, patch, build = APP_VERSION_INFO
     content = f"""VSVersionInfo(
   ffi=FixedFileInfo(
     filevers=({major}, {minor}, {patch}, {build}),

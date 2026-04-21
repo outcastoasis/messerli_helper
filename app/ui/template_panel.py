@@ -18,14 +18,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.constants import WORK_REMARKS
+from app.constants import MAX_FAVORITE_PROJECTS, WORK_REMARKS
 from app.models.project_template import ProjectTemplate
 from app.utils.paths import get_bundle_dir
 
 
 class ProjectTemplatesWidget(QWidget):
     templates_changed = Signal(list)
-    MAX_FAVORITES = 3
+    MAX_FAVORITES = MAX_FAVORITE_PROJECTS
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
