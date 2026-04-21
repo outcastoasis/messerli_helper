@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hashlib import sha1
+
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import (
     QAction,
@@ -12,11 +14,13 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QMenu, QWidget
 
 from app.constants import (
+    PROJECT_BADGE_COLORS,
     REMARK_COLORS,
     SLOT_MINUTES,
     TIMELINE_END_HOUR,
     TIMELINE_START_HOUR,
 )
+from app.models.project_template import ProjectTemplate
 from app.models.time_block import TimeBlock
 from app.utils.time_utils import minutes_to_time_text, snap_minutes
 from app.validation.validators import sort_blocks
@@ -31,6 +35,7 @@ class DayTimelineWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.blocks: list[TimeBlock] = []
+        self._template_names: dict[str, str] = {}
         self.left_gutter = 76
         self.top_padding = 16
         self.minimum_block_width = 240
@@ -52,6 +57,14 @@ class DayTimelineWidget(QWidget):
         self.updateGeometry()
         self.update()
 
+    def set_templates(self, templates: list[ProjectTemplate]) -> None:
+        self._template_names = {
+            template.project_number: template.display_name.strip()
+            for template in templates
+            if template.project_number
+        }
+        self.update()
+
     def sizeHint(self) -> QSize:
         total_slots = ((TIMELINE_END_HOUR - TIMELINE_START_HOUR) * 60) // SLOT_MINUTES
         height = self.top_padding * 2 + total_slots * self.slot_height
@@ -63,6 +76,8 @@ class DayTimelineWidget(QWidget):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
         painter.fillRect(self.rect(), QColor("#F8FAFD"))
         self._draw_grid(painter)
         self._draw_blocks(painter)
@@ -244,10 +259,10 @@ class DayTimelineWidget(QWidget):
             painter.setBrush(color)
             painter.drawRoundedRect(rect, 8, 8)
             painter.setPen(QPen(self._text_color_for_background(color), 1))
-            text = f"{block.display_project()}\n{block.remark}\n{block.start_time} - {block.end_time}"
-            painter.drawText(
-                rect.adjusted(8, 6, -8, -6), Qt.AlignLeft | Qt.TextWordWrap, text
-            )
+            if block.is_break or block.is_compensation:
+                self._draw_default_block_text(painter, rect, block)
+            else:
+                self._draw_work_block_text(painter, rect, block)
 
     def _draw_preview(self, painter: QPainter) -> None:
         if self._preview_start is None or self._preview_end is None:
@@ -312,6 +327,107 @@ class DayTimelineWidget(QWidget):
             color.red() * 299 + color.green() * 587 + color.blue() * 114
         ) / 1000
         return QColor("#111111") if brightness > 160 else QColor("#FFFFFF")
+
+    def _project_label_for_block(self, block: TimeBlock) -> str:
+        if block.is_break or block.is_compensation:
+            return block.display_project()
+        return self._project_name_for_block(block) or block.project_number
+
+    def _project_name_for_block(self, block: TimeBlock) -> str:
+        return self._template_names.get(block.project_number, "").strip()
+
+    def _draw_default_block_text(
+        self, painter: QPainter, rect: QRect, block: TimeBlock
+    ) -> None:
+        text = (
+            f"{self._project_label_for_block(block)}\n"
+            f"{block.remark}\n"
+            f"{block.start_time} - {block.end_time}"
+        )
+        painter.drawText(
+            rect.adjusted(8, 6, -8, -6), Qt.AlignLeft | Qt.TextWordWrap, text
+        )
+
+    def _draw_work_block_text(
+        self, painter: QPainter, rect: QRect, block: TimeBlock
+    ) -> None:
+        content_rect = rect.adjusted(8, 6, -8, -6)
+        badge_rect = self._draw_project_badge(painter, content_rect, block.project_number)
+        if badge_rect is not None:
+            content_rect.setRight(max(content_rect.left(), badge_rect.left() - 8))
+
+        project_line = self._project_name_for_block(block) or block.project_number
+        lines = [
+            project_line,
+            block.remark,
+            f"{block.start_time} - {block.end_time}",
+        ]
+        metrics = painter.fontMetrics()
+        line_height = metrics.lineSpacing()
+        y = content_rect.top()
+
+        title_font = painter.font()
+        title_font.setBold(True)
+        painter.save()
+        painter.setFont(title_font)
+        title_metrics = painter.fontMetrics()
+        title_rect = QRect(
+            content_rect.left(),
+            y,
+            content_rect.width(),
+            title_metrics.lineSpacing(),
+        )
+        painter.drawText(
+            title_rect,
+            Qt.AlignLeft | Qt.AlignVCenter,
+            title_metrics.elidedText(project_line, Qt.ElideRight, content_rect.width()),
+        )
+        painter.restore()
+
+        y += title_metrics.lineSpacing()
+        for line in lines[1:]:
+            line_rect = QRect(content_rect.left(), y, content_rect.width(), line_height)
+            painter.drawText(
+                line_rect,
+                Qt.AlignLeft | Qt.AlignVCenter,
+                metrics.elidedText(line, Qt.ElideRight, content_rect.width()),
+            )
+            y += line_height
+
+    def _draw_project_badge(
+        self, painter: QPainter, content_rect: QRect, project_number: str
+    ) -> QRect | None:
+        if not project_number:
+            return None
+
+        painter.save()
+        badge_font = painter.font()
+        badge_font.setBold(True)
+        painter.setFont(badge_font)
+        metrics = painter.fontMetrics()
+        badge_text = metrics.elidedText(project_number, Qt.ElideRight, 96)
+        badge_height = metrics.height() + 6
+        badge_width = metrics.horizontalAdvance(badge_text) + 14
+        badge_rect = QRect(
+            content_rect.right() - badge_width,
+            content_rect.top(),
+            badge_width,
+            badge_height,
+        )
+        badge_color = self._project_badge_color(project_number)
+        painter.setPen(QPen(badge_color.darker(125), 1))
+        painter.setBrush(badge_color)
+        corner_radius = badge_rect.height() / 2
+        painter.drawRoundedRect(badge_rect, corner_radius, corner_radius)
+        painter.setPen(QPen(self._text_color_for_background(badge_color), 1))
+        painter.drawText(badge_rect, Qt.AlignCenter, badge_text)
+        painter.restore()
+        return badge_rect
+
+    def _project_badge_color(self, project_number: str) -> QColor:
+        digest = sha1(project_number.encode("utf-8")).digest()
+        color_index = digest[0] % len(PROJECT_BADGE_COLORS)
+        return QColor(PROJECT_BADGE_COLORS[color_index])
 
     def _grid_width(self) -> int:
         available_width = self.width() - self.left_gutter - self.right_padding

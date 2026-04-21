@@ -107,6 +107,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(splitter, stretch=1)
 
         self.timeline = DayTimelineWidget()
+        self.timeline.set_templates(self.templates)
         self.timeline.create_requested.connect(self._create_block_from_drag)
         self.timeline.edit_requested.connect(self._edit_block)
         self.timeline.move_or_resize_requested.connect(self._move_or_resize_block)
@@ -463,6 +464,8 @@ class MainWindow(QMainWindow):
     def _templates_updated(self, templates: list[ProjectTemplate]) -> None:
         self.templates = templates
         self.service.save_templates(templates)
+        self.timeline.set_templates(templates)
+        self._refresh_lists()
         logger.info("Updated %s templates", len(templates))
 
     def _prepare_fill(self) -> None:

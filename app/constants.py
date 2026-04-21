@@ -28,20 +28,31 @@ COMPENSATION_REMARK = "Kompensation"
 COMPENSATION_REMARKS = [COMPENSATION_REMARK]
 
 REMARK_COLORS = {
-    "Admin": "#8D99AE",
-    "Projektleitung": "#3A86FF",
-    "Meeting": "#6366F1",
-    "Fahrt": "#4CC9A6",
-    "Sys. AVOR": "#4361EE",
-    "Sys. Installation": "#F4A261",
-    "Sys. Rückbau": "#E76F51",
-    "Event Aufbau": "#EC4899",
-    "Event Abbau": "#F97316",
-    "Event Betreuung": "#14B8A6",
+    "Admin": "#A3B2C6",
+    "Projektleitung": "#6F89AD",
+    "Meeting": "#486583",
+    "Fahrt": "#2FAF98",
+    "Sys. AVOR": "#8CB2E3",
+    "Sys. Installation": "#5C8FD5",
+    "Sys. Rückbau": "#2F63AC",
+    "Event Aufbau": "#E38DAA",
+    "Event Abbau": "#D76088",
+    "Event Betreuung": "#B93D68",
     "Mittag": "#D62839",
     "Pause": "#9C6644",
     "Kompensation": "#2A9D8F",
 }
+
+PROJECT_BADGE_COLORS = [
+    "#BFDBFE",
+    "#BBF7D0",
+    "#FDE68A",
+    "#FBCFE8",
+    "#C4B5FD",
+    "#A5F3FC",
+    "#FDBA74",
+    "#FECACA",
+]
 
 WORK_COST_TYPES = {
     "Admin": "30.01",
