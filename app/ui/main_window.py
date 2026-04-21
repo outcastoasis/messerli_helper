@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from app import __version__
 from app.automation.runner import AutomationWorker
 from app.automation.sequence import build_steps_for_blocks
-from app.constants import APP_NAME
+from app.constants import APP_NAME, TIMELINE_DEFAULT_VISIBLE_HOUR
 from app.models.preferences import AppPreferences
 from app.models.project_template import ProjectTemplate
 from app.models.time_block import TimeBlock
@@ -34,6 +34,11 @@ from app.ui.block_editor import BlockEditorDialog
 from app.ui.template_panel import ProjectTemplatesWidget
 from app.ui.timeline_widget import DayTimelineWidget
 from app.utils.time_utils import format_duration_minutes
+from app.utils.windows import (
+    activate_window,
+    get_foreground_window_handle,
+    is_current_process_window,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,12 +129,13 @@ class MainWindow(QMainWindow):
         timeline_help.setWordWrap(True)
         timeline_layout.addWidget(timeline_help)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(False)
-        scroll.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        scroll.setWidget(self.timeline)
-        timeline_layout.addWidget(scroll, stretch=1)
+        self.timeline_scroll = QScrollArea()
+        self.timeline_scroll.setWidgetResizable(False)
+        self.timeline_scroll.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.timeline_scroll.setWidget(self.timeline)
+        timeline_layout.addWidget(self.timeline_scroll, stretch=1)
         splitter.addWidget(timeline_container)
+        QTimer.singleShot(0, self._scroll_timeline_to_default_hour)
 
         sidebar = QWidget()
         sidebar_layout = QVBoxLayout(sidebar)
@@ -481,20 +487,16 @@ class MainWindow(QMainWindow):
             "Bitte jetzt das erste leere Auftragsfeld in Messerli anklicken.\n\n"
             "Nach dem Bestätigen startet ein 3-Sekunden-Countdown. ESC bricht sofort ab."
         )
-        response = QMessageBox.question(
-            self,
-            "Ausfüllen vorbereiten",
-            message,
-            QMessageBox.Ok | QMessageBox.Cancel,
-            QMessageBox.Ok,
-        )
-        if response != QMessageBox.Ok:
+        confirmed, target_window = self._confirm_fill_target(message)
+        if not confirmed:
             return
 
         self.countdown_remaining = max(1, self.preferences.countdown_seconds)
         self.fill_button.setEnabled(False)
         self._set_status(f"Countdown läuft: {self.countdown_remaining}")
         self.countdown_timer.start(1000)
+        if target_window is not None:
+            QTimer.singleShot(50, lambda: self._restore_external_window(target_window))
 
     def _countdown_tick(self) -> None:
         self.countdown_remaining -= 1
@@ -527,6 +529,44 @@ class MainWindow(QMainWindow):
     def _cleanup_worker(self) -> None:
         self.worker = None
         self._refresh_lists()
+
+    def _scroll_timeline_to_default_hour(self) -> None:
+        target_minutes = TIMELINE_DEFAULT_VISIBLE_HOUR * 60
+        target_y = self.timeline.y_position_for_minutes(target_minutes)
+        self.timeline_scroll.verticalScrollBar().setValue(
+            max(0, target_y - self.timeline.top_padding)
+        )
+
+    def _confirm_fill_target(self, message: str) -> tuple[bool, int | None]:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Ausfüllen vorbereiten")
+        dialog.setIcon(QMessageBox.Question)
+        dialog.setText(message)
+        dialog.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        dialog.setDefaultButton(QMessageBox.Ok)
+
+        tracked_window: dict[str, int | None] = {"handle": None}
+        tracker = QTimer(dialog)
+        tracker.setInterval(150)
+
+        def capture_external_window() -> None:
+            window_handle = get_foreground_window_handle()
+            if window_handle is None or is_current_process_window(window_handle):
+                return
+            tracked_window["handle"] = window_handle
+
+        tracker.timeout.connect(capture_external_window)
+        dialog.finished.connect(tracker.stop)
+        tracker.start()
+
+        confirmed = dialog.exec() == QMessageBox.Ok
+        return confirmed, tracked_window["handle"]
+
+    def _restore_external_window(self, window_handle: int) -> None:
+        if activate_window(window_handle):
+            logger.info("Restored focus to external window %s", window_handle)
+            return
+        logger.info("Could not restore focus to external window %s", window_handle)
 
     def _remember_preferences(self, block: TimeBlock) -> None:
         if block.block_type == "work":

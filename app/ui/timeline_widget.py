@@ -101,8 +101,11 @@ class DayTimelineWidget(QWidget):
         self._preview_end = None
 
         if block is None:
-            self._drag_mode = "create"
             start_minutes = self._point_to_minutes(point, rounding="floor")
+            if start_minutes >= self._latest_supported_minutes():
+                super().mousePressEvent(event)
+                return
+            self._drag_mode = "create"
             self._drag_start_minutes = start_minutes
             self._preview_start = start_minutes
             self._preview_end = start_minutes + SLOT_MINUTES
@@ -136,7 +139,7 @@ class DayTimelineWidget(QWidget):
             if start == end:
                 end += SLOT_MINUTES
             self._preview_start = start
-            self._preview_end = min(end, TIMELINE_END_HOUR * 60)
+            self._preview_end = min(end, self._latest_supported_minutes())
         else:
             block = self._find_block(self._drag_block_id)
             if block is None:
@@ -145,7 +148,7 @@ class DayTimelineWidget(QWidget):
                 delta = current_minutes - self._drag_origin_minutes
                 duration = block.duration_minutes
                 start = max(TIMELINE_START_HOUR * 60, block.start_minutes + delta)
-                start = min(start, TIMELINE_END_HOUR * 60 - duration)
+                start = min(start, self._latest_supported_minutes() - duration)
                 self._preview_start = start
                 self._preview_end = start + duration
             elif self._drag_mode == "resize_top":
@@ -155,7 +158,7 @@ class DayTimelineWidget(QWidget):
                 self._preview_end = block.end_minutes
             elif self._drag_mode == "resize_bottom":
                 new_end = max(current_minutes, block.start_minutes + SLOT_MINUTES)
-                new_end = min(new_end, TIMELINE_END_HOUR * 60)
+                new_end = min(new_end, self._latest_supported_minutes())
                 self._preview_start = block.start_minutes
                 self._preview_end = new_end
 
@@ -244,10 +247,10 @@ class DayTimelineWidget(QWidget):
             is_hour = slot % 4 == 0
             painter.setPen(QPen(QColor("#C2CDDC" if is_hour else "#E2E8F0"), 1))
             painter.drawLine(self.left_gutter, y, self.left_gutter + grid_width, y)
-            if slot < total_slots and is_hour:
+            if is_hour:
                 label_minutes = TIMELINE_START_HOUR * 60 + slot * SLOT_MINUTES
                 painter.setPen(QPen(QColor("#334155"), 1))
-                painter.drawText(12, y + 5, minutes_to_time_text(label_minutes))
+                painter.drawText(12, y + 5, self._time_label_text(label_minutes))
 
     def _draw_blocks(self, painter: QPainter) -> None:
         self._block_rects = {}
@@ -280,8 +283,15 @@ class DayTimelineWidget(QWidget):
             slots = round(relative_y / self.slot_height)
         minutes = TIMELINE_START_HOUR * 60 + slots * SLOT_MINUTES
         minutes = snap_minutes(minutes)
-        minutes = max(TIMELINE_START_HOUR * 60, min(minutes, TIMELINE_END_HOUR * 60))
+        minutes = max(
+            TIMELINE_START_HOUR * 60, min(minutes, self._latest_supported_minutes())
+        )
         return minutes
+
+    def y_position_for_minutes(self, total_minutes: int) -> int:
+        clamped = max(TIMELINE_START_HOUR * 60, min(total_minutes, TIMELINE_END_HOUR * 60))
+        slot = (clamped - TIMELINE_START_HOUR * 60) / SLOT_MINUTES
+        return self.top_padding + round(slot * self.slot_height)
 
     def _rect_for_block(self, block: TimeBlock) -> QRect:
         return self._rect_for_range(block.start_minutes, block.end_minutes)
@@ -306,6 +316,14 @@ class DayTimelineWidget(QWidget):
         if not block_id:
             return None
         return next((block for block in self.blocks if block.id == block_id), None)
+
+    def _latest_supported_minutes(self) -> int:
+        return TIMELINE_END_HOUR * 60 - SLOT_MINUTES
+
+    def _time_label_text(self, total_minutes: int) -> str:
+        if total_minutes == TIMELINE_END_HOUR * 60:
+            return "24:00"
+        return minutes_to_time_text(total_minutes)
 
     def _update_cursor(self, point: QPoint) -> None:
         block = self._block_at(point)
