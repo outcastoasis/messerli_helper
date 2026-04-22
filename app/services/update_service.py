@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import re
+import ssl
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -11,6 +12,11 @@ from pathlib import Path
 from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+try:
+    import certifi
+except ImportError:  # pragma: no cover - optional dependency during transition
+    certifi = None
 
 from app.metadata import (
     APP_EXECUTABLE_NAME,
@@ -140,9 +146,10 @@ class GitHubReleaseUpdater:
         expected_size = max(0, int(update.asset.size))
         downloaded = 0
         hasher = hashlib.sha256()
+        ssl_context = self._create_ssl_context()
 
         try:
-            with urlopen(request, timeout=30) as response:
+            with urlopen(request, timeout=30, context=ssl_context) as response:
                 total = self._resolve_total_size(response, expected_size)
                 with installer_path.open("wb") as handle:
                     while True:
@@ -205,6 +212,7 @@ class GitHubReleaseUpdater:
         return fallback_size
 
     def _fetch_json(self, url: str) -> dict:
+        ssl_context = self._create_ssl_context()
         request = Request(
             url,
             headers={
@@ -213,7 +221,7 @@ class GitHubReleaseUpdater:
             },
         )
         try:
-            with urlopen(request, timeout=15) as response:
+            with urlopen(request, timeout=15, context=ssl_context) as response:
                 return json.load(response)
         except HTTPError as exc:
             if exc.code == 404:
@@ -231,6 +239,21 @@ class GitHubReleaseUpdater:
             raise UpdateError(
                 "Die Antwort von GitHub Releases konnte nicht gelesen werden."
             ) from exc
+
+    @staticmethod
+    def _create_ssl_context() -> ssl.SSLContext:
+        context = ssl.create_default_context()
+
+        # OpenSSL 3 can reject otherwise trusted chains more aggressively when
+        # strict X.509 checking is enabled. We keep certificate verification on,
+        # but relax this specific strictness flag for broader real-world compatibility.
+        strict_flag = getattr(ssl, "VERIFY_X509_STRICT", 0)
+        if strict_flag:
+            context.verify_flags &= ~strict_flag
+
+        if certifi is not None:
+            context.load_verify_locations(certifi.where())
+        return context
 
     def _build_update(self, payload: dict) -> AppUpdate | None:
         latest_version = self._extract_release_version(payload)
