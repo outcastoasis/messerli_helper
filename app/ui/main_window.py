@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 from datetime import date, timedelta
+from pathlib import Path
 
 from PySide6.QtCore import QDate, QTimer, Qt
 from PySide6.QtGui import QColor, QTextCharFormat
 from PySide6.QtWidgets import (
+    QApplication,
     QCalendarWidget,
     QDateEdit,
     QGroupBox,
@@ -15,6 +17,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMainWindow,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -30,9 +33,16 @@ from app.models.preferences import AppPreferences
 from app.models.project_template import ProjectTemplate
 from app.models.time_block import TimeBlock
 from app.services.day_service import DayService
+from app.services.update_service import (
+    AppUpdate,
+    GitHubReleaseUpdater,
+    UpdateCheckResult,
+    UpdateError,
+)
 from app.ui.block_editor import BlockEditorDialog
 from app.ui.template_panel import ProjectTemplatesWidget
 from app.ui.timeline_widget import DayTimelineWidget
+from app.ui.update_workers import UpdateCheckWorker, UpdateDownloadWorker
 from app.utils.time_utils import format_duration_minutes
 from app.utils.windows import (
     activate_window,
@@ -44,9 +54,15 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, service: DayService, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        service: DayService,
+        updater: GitHubReleaseUpdater | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.service = service
+        self.updater = updater
         self.blocks: list[TimeBlock] = []
         self.templates: list[ProjectTemplate] = self.service.load_templates()
         self.preferences: AppPreferences = self.service.load_preferences()
@@ -56,6 +72,10 @@ class MainWindow(QMainWindow):
         self.countdown_timer = QTimer(self)
         self.countdown_timer.timeout.connect(self._countdown_tick)
         self.worker: AutomationWorker | None = None
+        self.update_check_worker: UpdateCheckWorker | None = None
+        self.update_download_worker: UpdateDownloadWorker | None = None
+        self.update_progress_dialog: QProgressDialog | None = None
+        self.pending_update: AppUpdate | None = None
         self.pending_steps = []
 
         self.setWindowTitle(APP_NAME)
@@ -63,12 +83,24 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(720, 820)
         self._build_ui()
         self._load_day(self.current_date)
+        if self.updater is not None:
+            QTimer.singleShot(1500, self._check_for_updates_in_background)
 
     def closeEvent(self, event) -> None:
+        if self.update_download_worker is not None and self.update_download_worker.isRunning():
+            QMessageBox.information(
+                self,
+                "Update",
+                "Der Update-Download laeuft noch. Bitte warte einen Moment.",
+            )
+            event.ignore()
+            return
         self._persist_current_day()
         if self.worker is not None and self.worker.isRunning():
             self.worker.request_abort()
             self.worker.wait(2000)
+        if self.update_check_worker is not None and self.update_check_worker.isRunning():
+            self.update_check_worker.wait(2000)
         super().closeEvent(event)
 
     def _build_ui(self) -> None:
@@ -86,6 +118,11 @@ class MainWindow(QMainWindow):
         version_label = QLabel(f"v{__version__}")
         version_label.setObjectName("VersionBadge")
         toolbar.addWidget(version_label)
+        self.update_button = QPushButton("Nach Updates suchen")
+        self.update_button.setObjectName("UpdateButton")
+        self.update_button.clicked.connect(self._check_for_updates_manually)
+        self.update_button.setEnabled(self.updater is not None)
+        toolbar.addWidget(self.update_button)
         toolbar.addStretch()
 
         self.date_edit = QDateEdit()
@@ -482,6 +519,209 @@ class MainWindow(QMainWindow):
         )
         self._refresh_lists()
         logger.info("Updated %s templates", len(templates))
+
+    def _check_for_updates_in_background(self) -> None:
+        self._start_update_check(manual=False)
+
+    def _check_for_updates_manually(self) -> None:
+        self._start_update_check(manual=True)
+
+    def _start_update_check(self, manual: bool) -> None:
+        if self.updater is None:
+            if manual:
+                QMessageBox.information(
+                    self,
+                    "Updates",
+                    "Fuer diese App ist noch kein Update-Service konfiguriert.",
+                )
+            return
+        if self.update_check_worker is not None and self.update_check_worker.isRunning():
+            if manual:
+                QMessageBox.information(
+                    self,
+                    "Updates",
+                    "Die Update-Pruefung laeuft bereits.",
+                )
+            return
+
+        if manual:
+            self._set_status("Pruefe auf Updates ...")
+        self.update_button.setEnabled(False)
+        self.update_check_worker = UpdateCheckWorker(self.updater, manual, self)
+        self.update_check_worker.completed.connect(self._handle_update_check_result)
+        self.update_check_worker.finished.connect(self._cleanup_update_check_worker)
+        self.update_check_worker.start()
+
+    def _handle_update_check_result(self, result_obj: object, manual: bool) -> None:
+        if not isinstance(result_obj, UpdateCheckResult):
+            return
+        result = result_obj
+
+        if result.error:
+            if manual:
+                self._set_status("Update-Pruefung fehlgeschlagen")
+                QMessageBox.warning(self, "Updates", result.error)
+            else:
+                logger.warning("Background update check failed: %s", result.error)
+            return
+
+        if not result.update_available or result.update is None:
+            if manual:
+                self._set_status("App ist aktuell")
+                QMessageBox.information(
+                    self,
+                    "Updates",
+                    f"Es ist keine neuere Version als v{__version__} verfuegbar.",
+                )
+            else:
+                logger.info("No newer version available")
+            return
+
+        update = result.update
+        if not manual and self.preferences.skipped_update_version == update.version:
+            logger.info("Skipped update %s because user ignored it earlier", update.version)
+            return
+
+        self.pending_update = update
+        self._show_update_prompt(update, manual)
+
+    def _cleanup_update_check_worker(self) -> None:
+        self.update_check_worker = None
+        if self.update_download_worker is None:
+            self.update_button.setEnabled(self.updater is not None)
+
+    def _show_update_prompt(self, update: AppUpdate, manual: bool) -> None:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Update verfuegbar")
+        dialog.setIcon(QMessageBox.Information)
+        dialog.setText(
+            f"Version {update.version} ist verfuegbar.\n\n"
+            "Der Installer wird direkt aus GitHub Releases heruntergeladen."
+        )
+        dialog.setInformativeText(
+            "Nach dem Download startet das Setup und die App wird beendet."
+        )
+        if update.notes:
+            dialog.setDetailedText(update.notes)
+
+        install_button = dialog.addButton("Jetzt aktualisieren", QMessageBox.AcceptRole)
+        later_button = dialog.addButton("Spaeter", QMessageBox.RejectRole)
+        skip_button = None
+        if not manual:
+            skip_button = dialog.addButton(
+                "Diese Version ueberspringen",
+                QMessageBox.DestructiveRole,
+            )
+        dialog.setDefaultButton(install_button)
+        dialog.exec()
+
+        clicked = dialog.clickedButton()
+        if clicked == install_button:
+            self.preferences.skipped_update_version = ""
+            self.service.save_preferences(self.preferences)
+            self._download_update(update)
+            return
+        if skip_button is not None and clicked == skip_button:
+            self.preferences.skipped_update_version = update.version
+            self.service.save_preferences(self.preferences)
+            self._set_status(f"Update {update.version} uebersprungen")
+            return
+        if clicked == later_button and manual:
+            self._set_status("Update spaeter")
+
+    def _download_update(self, update: AppUpdate) -> None:
+        if self.updater is None:
+            return
+        if self.update_download_worker is not None and self.update_download_worker.isRunning():
+            QMessageBox.information(
+                self,
+                "Update",
+                "Ein Update wird bereits heruntergeladen.",
+            )
+            return
+
+        self.pending_update = update
+        self.update_button.setEnabled(False)
+        self.update_progress_dialog = QProgressDialog(
+            "Installer wird von GitHub Releases heruntergeladen ...",
+            "",
+            0,
+            0,
+            self,
+        )
+        self.update_progress_dialog.setWindowTitle("Update herunterladen")
+        self.update_progress_dialog.setAutoClose(False)
+        self.update_progress_dialog.setAutoReset(False)
+        self.update_progress_dialog.setCancelButton(None)
+        self.update_progress_dialog.setMinimumDuration(0)
+        self.update_progress_dialog.setWindowModality(Qt.WindowModal)
+        self.update_progress_dialog.show()
+
+        self.update_download_worker = UpdateDownloadWorker(self.updater, update, self)
+        self.update_download_worker.progress_changed.connect(
+            self._update_download_progress
+        )
+        self.update_download_worker.completed.connect(self._update_download_completed)
+        self.update_download_worker.failed.connect(self._update_download_failed)
+        self.update_download_worker.finished.connect(self._cleanup_update_download_worker)
+        self.update_download_worker.start()
+
+    def _update_download_progress(self, downloaded: int, total: int) -> None:
+        if self.update_progress_dialog is None:
+            return
+        if total > 0:
+            self.update_progress_dialog.setRange(0, total)
+            self.update_progress_dialog.setValue(downloaded)
+            self.update_progress_dialog.setLabelText(
+                "Installer wird von GitHub Releases heruntergeladen ...\n"
+                f"{self._format_megabytes(downloaded)} / {self._format_megabytes(total)}"
+            )
+            return
+        self.update_progress_dialog.setRange(0, 0)
+
+    def _update_download_completed(self, installer_path: str) -> None:
+        if self.update_progress_dialog is not None:
+            self.update_progress_dialog.close()
+            self.update_progress_dialog = None
+        if self.updater is None:
+            return
+
+        QMessageBox.information(
+            self,
+            "Update bereit",
+            "Der Installer wurde heruntergeladen. Nach dem Schliessen dieses Dialogs "
+            "startet das Setup und die App beendet sich.",
+        )
+
+        try:
+            self.updater.launch_installer(Path(installer_path))
+        except UpdateError as exc:
+            QMessageBox.critical(self, "Update", str(exc))
+            self._set_status("Installer konnte nicht gestartet werden")
+            return
+
+        self._set_status("Update wird installiert")
+        QTimer.singleShot(0, QApplication.instance().quit)
+
+    def _update_download_failed(self, message: str) -> None:
+        if self.update_progress_dialog is not None:
+            self.update_progress_dialog.close()
+            self.update_progress_dialog = None
+        self._set_status("Update-Download fehlgeschlagen")
+        QMessageBox.critical(self, "Update", message)
+
+    def _cleanup_update_download_worker(self) -> None:
+        self.update_download_worker = None
+        if self.update_progress_dialog is not None:
+            self.update_progress_dialog.close()
+            self.update_progress_dialog = None
+        self.update_button.setEnabled(
+            self.updater is not None and self.update_check_worker is None
+        )
+
+    @staticmethod
+    def _format_megabytes(size_in_bytes: int) -> str:
+        return f"{size_in_bytes / (1024 * 1024):.1f} MB"
 
     def _prepare_fill(self) -> None:
         issues = self.service.validate_day(self.blocks)

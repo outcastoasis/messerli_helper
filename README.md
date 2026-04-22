@@ -92,6 +92,32 @@ Optional kann der EXE-Build übersprungen werden:
 
 Der Installer wird als Per-User-Setup gebaut und installiert standardmässig nach `%LOCALAPPDATA%\Programs\Messerli Helper`. Die erzeugten Installer-Dateien landen unter `dist\installer\`.
 
+### Auto-Updates Ã¼ber GitHub Releases
+
+Die App prÃ¼ft beim Start automatisch auf neue Versionen Ã¼ber das GitHub-Release `latest` des konfigurierten Repositorys. ZusÃ¤tzlich gibt es in der Toolbar den Button `Nach Updates suchen`.
+
+Aktuell erwartet der Updater:
+
+- ein Ã¶ffentliches GitHub-Repository
+- einen verÃ¶ffentlichten Release mit Tag `vX.Y.Z` oder `X.Y.Z`
+- ein Installer-Asset mit dem Namen `MesserliHelper-Setup-X.Y.Z.exe`
+
+Der Download erfolgt direkt vom `browser_download_url` des passenden Release-Assets. Nach dem Download startet die App den Inno-Setup-Installer und beendet sich anschliessend selbst.
+
+Typischer Release-Ablauf:
+
+1. Version in `app/metadata.py` erhÃ¶hen.
+2. Installer mit `.\build_installer.ps1` bauen.
+3. Auf GitHub einen neuen Release mit passendem Tag erstellen, z. B. `v0.1.7`.
+4. Die Datei `dist\installer\MesserliHelper-Setup-0.1.7.exe` als Release-Asset hochladen.
+5. Release verÃ¶ffentlichen.
+
+Wichtige Hinweise:
+
+- Ohne verÃ¶ffentlichten GitHub Release findet die App kein Update.
+- Der Asset-Name muss exakt zum Versionsschema passen.
+- FÃ¼r weniger SmartScreen-Warnungen ist ein Code-Signing-Zertifikat empfehlenswert, aber nicht Teil dieser Umsetzung.
+
 ## Projektstruktur
 
 ```text

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 from app import __version__
 from app.metadata import APP_NAME, APP_USER_MODEL_ID
 from app.services.day_service import DayService
+from app.services.update_service import GitHubReleaseUpdater
 from app.storage.json_store import JsonStorage
 from app.ui.main_window import MainWindow
 from app.utils.logging_config import configure_logging
@@ -34,8 +35,9 @@ def main() -> int:
         seed_template_file=bundle_dir / "examples" / "project_templates.json",
     )
     service = DayService(storage)
+    updater = GitHubReleaseUpdater()
 
-    window = MainWindow(service)
+    window = MainWindow(service, updater=updater)
     window.show()
     return app.exec()
 

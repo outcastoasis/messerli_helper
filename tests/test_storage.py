@@ -72,6 +72,7 @@ def test_save_and_load_preferences() -> None:
             countdown_seconds=5,
             typing_interval=0.2,
             project_badge_assignments={"25344": 2, "27050": 4},
+            skipped_update_version="0.1.9",
         )
 
         storage.save_preferences(preferences)
