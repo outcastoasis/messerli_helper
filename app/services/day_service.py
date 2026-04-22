@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import date
 
-from app.constants import TARGET_PRODUCTIVE_MINUTES_BY_WEEKDAY
+from app.constants import PROJECT_BADGE_COLORS, TARGET_PRODUCTIVE_MINUTES_BY_WEEKDAY
 from app.models.preferences import AppPreferences
 from app.models.project_template import ProjectTemplate
 from app.models.time_block import TimeBlock
@@ -50,6 +51,53 @@ class DayService:
 
     def save_preferences(self, preferences: AppPreferences) -> None:
         self.storage.save_preferences(preferences)
+
+    def sync_project_badge_assignments(
+        self, templates: list[ProjectTemplate], preferences: AppPreferences
+    ) -> bool:
+        active_project_numbers = sorted(
+            {
+                template.project_number.strip()
+                for template in templates
+                if template.project_number.strip()
+            }
+        )
+        valid_indexes = set(range(len(PROJECT_BADGE_COLORS)))
+        synced_assignments: dict[str, int] = {}
+
+        for project_number in active_project_numbers:
+            color_index = preferences.project_badge_assignments.get(project_number)
+            if (
+                color_index in valid_indexes
+                and color_index not in synced_assignments.values()
+            ):
+                synced_assignments[project_number] = color_index
+
+        usage = Counter(synced_assignments.values())
+        available_indexes = [
+            color_index
+            for color_index in range(len(PROJECT_BADGE_COLORS))
+            if color_index not in usage
+        ]
+
+        for project_number in active_project_numbers:
+            if project_number in synced_assignments:
+                continue
+            if available_indexes:
+                color_index = available_indexes.pop(0)
+            else:
+                color_index = min(
+                    range(len(PROJECT_BADGE_COLORS)),
+                    key=lambda index: (usage[index], index),
+                )
+            synced_assignments[project_number] = color_index
+            usage[color_index] += 1
+
+        if synced_assignments == preferences.project_badge_assignments:
+            return False
+
+        preferences.project_badge_assignments = synced_assignments
+        return True
 
     def validate_day(self, blocks: list[TimeBlock]) -> list[ValidationIssue]:
         return validate_blocks(blocks)

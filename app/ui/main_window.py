@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
         self.blocks: list[TimeBlock] = []
         self.templates: list[ProjectTemplate] = self.service.load_templates()
         self.preferences: AppPreferences = self.service.load_preferences()
+        self.service.sync_project_badge_assignments(self.templates, self.preferences)
         self.current_date = date.today().isoformat()
         self.countdown_remaining = 0
         self.countdown_timer = QTimer(self)
@@ -113,6 +114,9 @@ class MainWindow(QMainWindow):
 
         self.timeline = DayTimelineWidget()
         self.timeline.set_templates(self.templates)
+        self.timeline.set_project_badge_assignments(
+            self.preferences.project_badge_assignments
+        )
         self.timeline.create_requested.connect(self._create_block_from_drag)
         self.timeline.edit_requested.connect(self._edit_block)
         self.timeline.move_or_resize_requested.connect(self._move_or_resize_block)
@@ -470,7 +474,12 @@ class MainWindow(QMainWindow):
     def _templates_updated(self, templates: list[ProjectTemplate]) -> None:
         self.templates = templates
         self.service.save_templates(templates)
+        self.service.sync_project_badge_assignments(self.templates, self.preferences)
+        self.service.save_preferences(self.preferences)
         self.timeline.set_templates(templates)
+        self.timeline.set_project_badge_assignments(
+            self.preferences.project_badge_assignments
+        )
         self._refresh_lists()
         logger.info("Updated %s templates", len(templates))
 

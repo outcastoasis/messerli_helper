@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha1
-
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import (
     QAction,
@@ -37,6 +35,7 @@ class DayTimelineWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.blocks: list[TimeBlock] = []
+        self._project_badge_assignments: dict[str, int] = {}
         self._template_names: dict[str, str] = {}
         self.left_gutter = 76
         self.top_padding = 16
@@ -65,6 +64,10 @@ class DayTimelineWidget(QWidget):
             for template in templates
             if template.project_number
         }
+        self.update()
+
+    def set_project_badge_assignments(self, assignments: dict[str, int]) -> None:
+        self._project_badge_assignments = dict(assignments)
         self.update()
 
     def sizeHint(self) -> QSize:
@@ -479,8 +482,9 @@ class DayTimelineWidget(QWidget):
         return badge_rect
 
     def _project_badge_color(self, project_number: str) -> QColor:
-        digest = sha1(project_number.encode("utf-8")).digest()
-        color_index = digest[0] % len(PROJECT_BADGE_COLORS)
+        color_index = self._project_badge_assignments.get(project_number)
+        if color_index is None or not 0 <= color_index < len(PROJECT_BADGE_COLORS):
+            return QColor("#E2E8F0")
         return QColor(PROJECT_BADGE_COLORS[color_index])
 
     def _grid_width(self) -> int:

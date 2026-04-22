@@ -71,6 +71,7 @@ def test_save_and_load_preferences() -> None:
             last_work_remark="Sys. Installation",
             countdown_seconds=5,
             typing_interval=0.2,
+            project_badge_assignments={"25344": 2, "27050": 4},
         )
 
         storage.save_preferences(preferences)
