@@ -171,6 +171,7 @@ class BlockEditorDialog(QDialog):
             BLOCK_TYPE_COMPENSATION: [],
         }
         self._selected_remark = self.block.remark
+        self.remark_section_widget: QWidget | None = None
 
         self._build_ui()
         self._load_initial_state()
@@ -209,8 +210,8 @@ class BlockEditorDialog(QDialog):
         main_layout.addWidget(self._create_divider())
 
         main_layout.addWidget(self._create_section_label("Bemerkung"))
-        remarks_widget = self._build_remark_section()
-        main_layout.addWidget(remarks_widget)
+        self.remark_section_widget = self._build_remark_section()
+        main_layout.addWidget(self.remark_section_widget)
 
         if not self.is_new:
             main_layout.addWidget(self._create_divider())

@@ -28,7 +28,11 @@ from PySide6.QtWidgets import (
 from app import __version__
 from app.automation.runner import AutomationWorker
 from app.automation.sequence import build_steps_for_blocks
-from app.constants import APP_NAME, TIMELINE_DEFAULT_VISIBLE_HOUR
+from app.constants import (
+    APP_ALWAYS_SHOW_TUTORIAL_ON_START,
+    APP_NAME,
+    TIMELINE_DEFAULT_VISIBLE_HOUR,
+)
 from app.models.preferences import AppPreferences
 from app.models.project_template import ProjectTemplate
 from app.models.time_block import TimeBlock
@@ -42,6 +46,7 @@ from app.services.update_service import (
 from app.ui.block_editor import BlockEditorDialog
 from app.ui.template_panel import ProjectTemplatesWidget
 from app.ui.timeline_widget import DayTimelineWidget
+from app.ui.tutorial import TutorialController
 from app.ui.update_workers import UpdateCheckWorker, UpdateDownloadWorker
 from app.utils.time_utils import format_duration_minutes
 from app.utils.windows import (
@@ -77,6 +82,8 @@ class MainWindow(QMainWindow):
         self.update_progress_dialog: QProgressDialog | None = None
         self.pending_update: AppUpdate | None = None
         self.pending_steps = []
+        self.tutorial_controller: TutorialController | None = None
+        self._tutorial_start_scheduled = False
 
         self.setWindowTitle(APP_NAME)
         self.resize(920, 920)
@@ -109,6 +116,24 @@ class MainWindow(QMainWindow):
             self.update_check_worker.wait(2000)
         super().closeEvent(event)
 
+    def bring_to_front(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        activate_window(int(self.winId()))
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._tutorial_start_scheduled or (
+            not APP_ALWAYS_SHOW_TUTORIAL_ON_START
+            and self.preferences.tutorial_completed
+        ):
+            return
+        self._tutorial_start_scheduled = True
+        QTimer.singleShot(600, self._auto_start_tutorial)
+
     def _build_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
@@ -129,6 +154,9 @@ class MainWindow(QMainWindow):
         self.update_button.clicked.connect(self._check_for_updates_manually)
         self.update_button.setEnabled(self.updater is not None)
         toolbar.addWidget(self.update_button)
+        self.tutorial_button = QPushButton("Einführung")
+        self.tutorial_button.clicked.connect(self.start_tutorial)
+        toolbar.addWidget(self.tutorial_button)
         toolbar.addStretch()
 
         self.date_edit = QDateEdit()
@@ -142,8 +170,6 @@ class MainWindow(QMainWindow):
         today_button.clicked.connect(
             lambda: self.date_edit.setDate(QDate.currentDate())
         )
-        save_button = QPushButton("Tag speichern")
-        save_button.clicked.connect(self._persist_current_day)
         copy_button = QPushButton("Vortag kopieren")
         copy_button.clicked.connect(self._copy_previous_day)
 
@@ -151,7 +177,6 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.date_edit)
         toolbar.addWidget(today_button)
         toolbar.addWidget(copy_button)
-        toolbar.addWidget(save_button)
         main_layout.addLayout(toolbar)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -184,6 +209,7 @@ class MainWindow(QMainWindow):
         self.timeline_scroll.setWidget(self.timeline)
         timeline_layout.addWidget(self.timeline_scroll, stretch=1)
         splitter.addWidget(timeline_container)
+        self.timeline_container = timeline_container
         QTimer.singleShot(0, self._scroll_timeline_to_default_hour)
 
         sidebar = QWidget()
@@ -207,6 +233,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(validation_group)
 
         productivity_group = QGroupBox("Produktivzeit")
+        self.productivity_group = productivity_group
         productivity_layout = QVBoxLayout(productivity_group)
         productivity_layout.setContentsMargins(10, 14, 10, 10)
         self.productive_time_label = QLabel("Produktiv: 0:00")
@@ -375,6 +402,7 @@ class MainWindow(QMainWindow):
             }
             """
         )
+        self._create_tutorial_controller()
 
     def _build_calendar_widget(self) -> QCalendarWidget:
         calendar = QCalendarWidget(self)
@@ -386,6 +414,36 @@ class MainWindow(QMainWindow):
         today_format.setForeground(QColor("#166534"))
         calendar.setDateTextFormat(QDate.currentDate(), today_format)
         return calendar
+
+    def _create_tutorial_controller(self) -> None:
+        self.tutorial_controller = TutorialController(
+            window=self,
+            preferences=self.preferences,
+            templates=lambda: self.templates,
+            save_preferences=self._save_preferences_only,
+            product_target=lambda: self.productivity_group,
+            template_target=lambda: getattr(self.templates_widget, "form_group", None),
+            timeline_target=lambda: self.timeline_scroll,
+        )
+
+    def _save_preferences_only(self) -> None:
+        self.service.save_preferences(self.preferences)
+
+    def _auto_start_tutorial(self) -> None:
+        if not self.isVisible():
+            return
+        if (
+            not APP_ALWAYS_SHOW_TUTORIAL_ON_START
+            and self.preferences.tutorial_completed
+        ):
+            return
+        self.start_tutorial()
+
+    def start_tutorial(self) -> None:
+        if self.tutorial_controller is None or self.tutorial_controller.is_running():
+            return
+        self.bring_to_front()
+        self.tutorial_controller.start()
 
     def _on_date_changed(self, qdate: QDate) -> None:
         new_date = qdate.toPython().isoformat()

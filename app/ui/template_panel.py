@@ -47,8 +47,8 @@ class ProjectTemplatesWidget(QWidget):
         self.list_widget.currentItemChanged.connect(self._on_selection_changed)
         layout.addWidget(self.list_widget, stretch=1)
 
-        form_group = QGroupBox("Vorlage bearbeiten")
-        form_layout = QFormLayout(form_group)
+        self.form_group = QGroupBox("Vorlage bearbeiten")
+        form_layout = QFormLayout(self.form_group)
 
         self.project_number_edit = QLineEdit()
         self.project_number_edit.setPlaceholderText("z.B. 25344")
@@ -97,7 +97,7 @@ class ProjectTemplatesWidget(QWidget):
         form_layout.addRow("Bezeichnung", self.display_name_edit)
         form_layout.addRow("Standardbemerkung", self.default_remark_combo)
         form_layout.addRow("Favorit", self.favorite_checkbox)
-        layout.addWidget(form_group)
+        layout.addWidget(self.form_group)
 
         button_row = QHBoxLayout()
         self.new_button = QPushButton("Neu")

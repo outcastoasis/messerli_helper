@@ -1,6 +1,11 @@
 """Shared application constants."""
 
-from app.metadata import APP_DATA_DIR_NAME, APP_EXECUTABLE_NAME, APP_NAME
+from app.metadata import (
+    APP_ALWAYS_SHOW_TUTORIAL_ON_START,
+    APP_DATA_DIR_NAME,
+    APP_EXECUTABLE_NAME,
+    APP_NAME,
+)
 
 BLOCK_TYPE_WORK = "work"
 BLOCK_TYPE_BREAK = "break"

@@ -9,9 +9,11 @@ APP_DATA_DIR_NAME = "MesserliHelper"
 APP_PUBLISHER = "Jascha Bucher"
 APP_PUBLISHER_ID = "JaschaBucher"
 # Change the version only here.
-APP_VERSION_PARTS = (0, 2, 2)
+APP_VERSION_PARTS = (0, 2, 3)
 APP_VERSION = ".".join(str(part) for part in APP_VERSION_PARTS)
 APP_VERSION_INFO = (*APP_VERSION_PARTS, 0)
+# Temporary testing switch. Set to False to show the tutorial only on first start.
+APP_ALWAYS_SHOW_TUTORIAL_ON_START = False
 
 APP_INSTALLER_APP_ID = f"{APP_PUBLISHER_ID}.{APP_EXECUTABLE_NAME}"
 APP_USER_MODEL_ID = APP_INSTALLER_APP_ID

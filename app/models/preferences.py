@@ -14,6 +14,7 @@ class AppPreferences:
     typing_interval: float = DEFAULT_TYPING_INTERVAL
     project_badge_assignments: dict[str, int] = field(default_factory=dict)
     skipped_update_version: str = ""
+    tutorial_completed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -23,6 +24,7 @@ class AppPreferences:
             "typing_interval": self.typing_interval,
             "project_badge_assignments": self.project_badge_assignments,
             "skipped_update_version": self.skipped_update_version,
+            "tutorial_completed": self.tutorial_completed,
         }
 
     @classmethod
@@ -44,4 +46,5 @@ class AppPreferences:
             typing_interval=float(payload.get("typing_interval", DEFAULT_TYPING_INTERVAL)),
             project_badge_assignments=assignments,
             skipped_update_version=str(payload.get("skipped_update_version", "")),
+            tutorial_completed=bool(payload.get("tutorial_completed", False)),
         )
