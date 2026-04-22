@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import sys
 
 from PySide6.QtGui import QIcon
@@ -17,7 +18,7 @@ from app.utils.paths import get_bundle_dir
 from app.utils.windows import set_current_process_app_user_model_id
 
 try:
-    import pyi_splash
+    pyi_splash = importlib.import_module("pyi_splash")
 except ImportError:  # pragma: no cover - available only in frozen builds with boot splash
     pyi_splash = None
 
