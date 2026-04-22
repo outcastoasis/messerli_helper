@@ -80,6 +80,24 @@ def test_sequence_for_compensation_entry() -> None:
     ]
 
 
+def test_sequence_supports_day_end_time() -> None:
+    block = TimeBlock(
+        date="2026-04-15",
+        start_time="23:00",
+        end_time="24:00",
+        block_type="work",
+        project_number="25344",
+        remark="Sys. Installation",
+    )
+
+    steps = build_steps_for_block(block)
+
+    assert [(step.action, step.value) for step in steps][-2:] == [
+        ("write", "24.00"),
+        ("press", "enter"),
+    ]
+
+
 def test_sequence_for_multiple_blocks_is_sorted() -> None:
     steps = build_steps_for_blocks(
         [

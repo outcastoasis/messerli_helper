@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
-from PySide6.QtCore import QPoint, QRect, QSize, QSignalBlocker, Qt, QTime
+from PySide6.QtCore import QPoint, QRect, QSize, QSignalBlocker, Qt
 from PySide6.QtWidgets import (
-    QAbstractSpinBox,
     QComboBox,
     QDialog,
     QFrame,
@@ -15,7 +14,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -34,26 +32,31 @@ from app.constants import (
 from app.models.preferences import AppPreferences
 from app.models.project_template import ProjectTemplate
 from app.models.time_block import TimeBlock
-from app.utils.time_utils import parse_time_text
+from app.utils.time_utils import minutes_to_time_text, parse_time_text
 from app.utils.paths import get_bundle_dir
 
 
-class QuarterHourTimeEdit(QTimeEdit):
-    """Time edit with 15-minute stepping and snapping."""
+class QuarterHourTimeComboBox(QComboBox):
+    """Quarter-hour selector with optional 24:00 end-of-day entry."""
 
-    def stepBy(self, steps: int) -> None:  # noqa: N802 - Qt API
-        updated = self.time().addSecs(steps * SLOT_MINUTES * 60)
-        self.setTime(updated)
+    def __init__(
+        self, include_day_end: bool = False, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self.setEditable(False)
+        for total_minutes in range(0, 24 * 60, SLOT_MINUTES):
+            self.addItem(minutes_to_time_text(total_minutes))
+        if include_day_end:
+            self.addItem("24:00")
 
-    def setTime(self, time: QTime) -> None:  # noqa: N802 - Qt API
-        minute = time.minute()
-        snapped_minute = round(minute / SLOT_MINUTES) * SLOT_MINUTES
-        adjusted = time
-        if snapped_minute == 60:
-            adjusted = adjusted.addSecs(60 * 60)
-            snapped_minute = 0
-        adjusted = QTime(adjusted.hour(), snapped_minute)
-        super().setTime(adjusted)
+    def time_text(self) -> str:
+        return self.currentText()
+
+    def set_time_text(self, value: str) -> None:
+        index = self.findText(value)
+        if index < 0:
+            raise ValueError(f"Ungültige Zeit für Auswahl: {value}")
+        self.setCurrentIndex(index)
 
 
 class FlowLayout(QLayout):
@@ -219,8 +222,8 @@ class BlockEditorDialog(QDialog):
         self.project_combo.activated.connect(self._apply_template_selection)
         self.project_combo.editTextChanged.connect(self._update_project_button_state)
         self.block_type_combo.currentIndexChanged.connect(self._update_ui_for_type)
-        self.start_edit.timeChanged.connect(self._update_duration_badge)
-        self.end_edit.timeChanged.connect(self._update_duration_badge)
+        self.start_edit.currentTextChanged.connect(self._update_duration_badge)
+        self.end_edit.currentTextChanged.connect(self._update_duration_badge)
 
     def _load_initial_state(self) -> None:
         if self.block.project_number:
@@ -355,18 +358,15 @@ class BlockEditorDialog(QDialog):
         labels_row.addWidget(self._create_field_caption("Bis"), 1)
         layout.addLayout(labels_row)
 
-        self.start_edit = QuarterHourTimeEdit()
-        self.end_edit = QuarterHourTimeEdit()
+        self.start_edit = QuarterHourTimeComboBox()
+        self.end_edit = QuarterHourTimeComboBox(include_day_end=True)
         for edit, value in (
             (self.start_edit, self.block.start_time),
             (self.end_edit, self.block.end_time),
         ):
-            edit.setDisplayFormat("HH:mm")
             edit.setObjectName("TimeEdit")
-            edit.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
-            edit.setAccelerated(True)
             edit.setFixedSize(124, 34)
-            edit.setTime(self._to_qtime(value))
+            edit.set_time_text(value)
 
         time_row = QHBoxLayout()
         time_row.setContentsMargins(0, 0, 0, 0)
@@ -592,8 +592,8 @@ class BlockEditorDialog(QDialog):
             button.setChecked(is_work_type and template.project_number == normalized)
 
     def _update_duration_badge(self) -> None:
-        start_minutes = parse_time_text(self.start_edit.time().toString("HH:mm"))
-        end_minutes = parse_time_text(self.end_edit.time().toString("HH:mm"))
+        start_minutes = parse_time_text(self.start_edit.time_text())
+        end_minutes = parse_time_text(self.end_edit.time_text())
         difference = end_minutes - start_minutes
 
         if difference <= 0:
@@ -637,8 +637,8 @@ class BlockEditorDialog(QDialog):
 
     def _build_block(self) -> TimeBlock:
         block_type = self.block_type_combo.currentData()
-        start_time = self.start_edit.time().toString("HH:mm")
-        end_time = self.end_edit.time().toString("HH:mm")
+        start_time = self.start_edit.time_text()
+        end_time = self.end_edit.time_text()
         project_number = (
             self._project_number_from_text(self.project_combo.currentText())
             if block_type == BLOCK_TYPE_WORK
@@ -726,11 +726,6 @@ class BlockEditorDialog(QDialog):
         del blocker
 
     @staticmethod
-    def _to_qtime(value: str) -> QTime:
-        hour, minute = (int(part) for part in value.split(":"))
-        return QTime(hour, minute)
-
-    @staticmethod
     def _create_section_label(text: str) -> QLabel:
         label = QLabel(text.upper())
         label.setObjectName("SectionLabel")
@@ -800,8 +795,6 @@ class BlockEditorDialog(QDialog):
     def _dialog_stylesheet() -> str:
         assets_dir = get_bundle_dir() / "app" / "ui" / "assets"
         combo_arrow_icon = (assets_dir / "dropdown_chevron.svg").as_posix()
-        spinner_up_icon = (assets_dir / "spinner_up.svg").as_posix()
-        spinner_down_icon = (assets_dir / "spinner_down.svg").as_posix()
         return """
         QDialog#BlockEditorDialog {
             background: #F4F6FB;
@@ -899,42 +892,32 @@ class BlockEditorDialog(QDialog):
             selection-background-color: #DBEAFE;
             selection-color: #0F172A;
         }
-        QTimeEdit#TimeEdit {
+        QComboBox#TimeEdit {
             border: 1px solid #C9D4E5;
             border-radius: 10px;
-            padding: 4px 40px 4px 12px;
+            padding: 0px 12px;
             background: #FFFFFF;
             color: #1E293B;
             selection-background-color: #DBEAFE;
             selection-color: #0F172A;
         }
-        QTimeEdit#TimeEdit::up-button,
-        QTimeEdit#TimeEdit::down-button {
+        QComboBox#TimeEdit::drop-down {
             subcontrol-origin: border;
-            width: 18px;
+            subcontrol-position: top right;
+            width: 34px;
             border: none;
             background: transparent;
         }
-        QTimeEdit#TimeEdit::up-button {
-            subcontrol-position: top right;
-            right: 20px;
-            top: 4px;
-        }
-        QTimeEdit#TimeEdit::down-button {
-            subcontrol-position: bottom right;
-            right: 20px;
-            bottom: 4px;
-        }
-        QTimeEdit#TimeEdit::up-arrow,
-        QTimeEdit#TimeEdit::down-arrow {
-            width: 8px;
+        QComboBox#TimeEdit::down-arrow {
+            image: url("%s");
+            width: 12px;
             height: 8px;
         }
-        QTimeEdit#TimeEdit::up-arrow {
-            image: url("%s");
-        }
-        QTimeEdit#TimeEdit::down-arrow {
-            image: url("%s");
+        QComboBox#TimeEdit QAbstractItemView {
+            border: 1px solid #C9D4E5;
+            background: #FFFFFF;
+            selection-background-color: #DBEAFE;
+            selection-color: #0F172A;
         }
         QPushButton#ChipButton,
         QPushButton#RemarkButton {
@@ -1012,6 +995,5 @@ class BlockEditorDialog(QDialog):
         }
         """ % (
             combo_arrow_icon,
-            spinner_up_icon,
-            spinner_down_icon,
+            combo_arrow_icon,
         )

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from app.constants import MAX_FAVORITE_PROJECTS, WORK_REMARKS
 from app.models.project_template import ProjectTemplate
 from app.utils.paths import get_bundle_dir
+from app.validation.validators import has_duplicate_project_number
 
 
 class ProjectTemplatesWidget(QWidget):
@@ -174,6 +175,15 @@ class ProjectTemplatesWidget(QWidget):
         project_number = self.project_number_edit.text().strip()
         if not project_number:
             QMessageBox.warning(self, "Vorlage", "Bitte eine Projektnummer angeben.")
+            return
+        if has_duplicate_project_number(
+            self._templates, project_number, exclude_id=self._selected_id
+        ):
+            QMessageBox.warning(
+                self,
+                "Vorlage",
+                "Diese Projektnummer existiert bereits und kann nicht doppelt gespeichert werden.",
+            )
             return
 
         is_favorite = self.favorite_checkbox.isChecked()

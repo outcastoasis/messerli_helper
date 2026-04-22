@@ -18,6 +18,8 @@ from app.constants import (
     REMARK_COLORS,
     SLOT_MINUTES,
     TIMELINE_END_HOUR,
+    TIMELINE_PRIMARY_END_HOUR,
+    TIMELINE_PRIMARY_START_HOUR,
     TIMELINE_START_HOUR,
 )
 from app.models.project_template import ProjectTemplate
@@ -230,17 +232,21 @@ class DayTimelineWidget(QWidget):
     def _draw_grid(self, painter: QPainter) -> None:
         total_slots = ((TIMELINE_END_HOUR - TIMELINE_START_HOUR) * 60) // SLOT_MINUTES
         grid_width = self._grid_width()
-
-        painter.setPen(QPen(QColor("#CBD5E1"), 1))
-        painter.setBrush(QColor("#FFFFFF"))
-        painter.drawRoundedRect(
+        grid_rect = QRect(
             self.left_gutter,
             self.top_padding,
             grid_width,
             total_slots * self.slot_height,
+        )
+
+        painter.setPen(QPen(QColor("#CBD5E1"), 1))
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawRoundedRect(
+            grid_rect,
             12,
             12,
         )
+        self._draw_dimmed_timeline_ranges(painter, grid_rect)
 
         for slot in range(total_slots + 1):
             y = self.top_padding + slot * self.slot_height
@@ -249,7 +255,10 @@ class DayTimelineWidget(QWidget):
             painter.drawLine(self.left_gutter, y, self.left_gutter + grid_width, y)
             if is_hour:
                 label_minutes = TIMELINE_START_HOUR * 60 + slot * SLOT_MINUTES
-                painter.setPen(QPen(QColor("#334155"), 1))
+                label_color = "#334155"
+                if not self._is_primary_timeline_minutes(label_minutes):
+                    label_color = "#94A3B8"
+                painter.setPen(QPen(QColor(label_color), 1))
                 painter.drawText(12, y + 5, self._time_label_text(label_minutes))
 
     def _draw_blocks(self, painter: QPainter) -> None:
@@ -318,7 +327,34 @@ class DayTimelineWidget(QWidget):
         return next((block for block in self.blocks if block.id == block_id), None)
 
     def _latest_supported_minutes(self) -> int:
-        return TIMELINE_END_HOUR * 60 - SLOT_MINUTES
+        return TIMELINE_END_HOUR * 60
+
+    def _draw_dimmed_timeline_ranges(self, painter: QPainter, grid_rect: QRect) -> None:
+        shaded_ranges = [
+            (TIMELINE_START_HOUR * 60, TIMELINE_PRIMARY_START_HOUR * 60),
+            (TIMELINE_PRIMARY_END_HOUR * 60, TIMELINE_END_HOUR * 60),
+        ]
+        painter.save()
+        painter.setClipRect(grid_rect)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(148, 163, 184, 28))
+        for start_minutes, end_minutes in shaded_ranges:
+            if end_minutes <= start_minutes:
+                continue
+            top = self.y_position_for_minutes(start_minutes)
+            bottom = self.y_position_for_minutes(end_minutes)
+            painter.drawRect(
+                grid_rect.left(),
+                top,
+                grid_rect.width(),
+                max(0, bottom - top),
+            )
+        painter.restore()
+
+    def _is_primary_timeline_minutes(self, total_minutes: int) -> bool:
+        return TIMELINE_PRIMARY_START_HOUR * 60 <= total_minutes <= (
+            TIMELINE_PRIMARY_END_HOUR * 60
+        )
 
     def _time_label_text(self, total_minutes: int) -> str:
         if total_minutes == TIMELINE_END_HOUR * 60:

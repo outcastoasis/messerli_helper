@@ -13,14 +13,18 @@ def parse_time_text(value: str) -> int:
         raise ValueError(f"Invalid time format: {value!r}")
     hour = int(match.group("hour"))
     minute = int(match.group("minute"))
+    if hour == 24 and minute == 0:
+        return 24 * 60
     if hour < 0 or hour > 23 or minute < 0 or minute > 59:
         raise ValueError(f"Invalid time value: {value!r}")
     return hour * 60 + minute
 
 
 def minutes_to_time_text(total_minutes: int) -> str:
-    if total_minutes < 0 or total_minutes >= 24 * 60:
+    if total_minutes < 0 or total_minutes > 24 * 60:
         raise ValueError(f"Minutes out of range: {total_minutes}")
+    if total_minutes == 24 * 60:
+        return "24:00"
     hour, minute = divmod(total_minutes, 60)
     return f"{hour:02d}:{minute:02d}"
 
@@ -42,6 +46,8 @@ def snap_minutes(total_minutes: int, step: int = SLOT_MINUTES) -> int:
 
 def format_messerli_time(time_text: str) -> str:
     total_minutes = parse_time_text(time_text)
+    if total_minutes == 24 * 60:
+        return "24.00"
     hour, minute = divmod(total_minutes, 60)
     if minute not in MESSERLI_MINUTE_SUFFIX:
         raise ValueError(f"Time is not on a 15-minute grid: {time_text!r}")

@@ -10,6 +10,7 @@ from app.constants import (
     COMPENSATION_REMARKS,
     WORK_REMARKS,
 )
+from app.models.project_template import ProjectTemplate
 from app.models.time_block import TimeBlock
 from app.utils.time_utils import is_quarter_hour
 
@@ -116,3 +117,17 @@ def validate_blocks(blocks: list[TimeBlock]) -> list[ValidationIssue]:
             continue
 
     return issues
+
+
+def has_duplicate_project_number(
+    templates: list[ProjectTemplate],
+    project_number: str,
+    exclude_id: str | None = None,
+) -> bool:
+    normalized = project_number.strip()
+    if not normalized:
+        return False
+    return any(
+        item.id != exclude_id and item.project_number.strip() == normalized
+        for item in templates
+    )

@@ -1,5 +1,10 @@
+from app.models.project_template import ProjectTemplate
 from app.models.time_block import TimeBlock
-from app.validation.validators import sort_blocks, validate_blocks
+from app.validation.validators import (
+    has_duplicate_project_number,
+    sort_blocks,
+    validate_blocks,
+)
 
 
 def make_block(**overrides) -> TimeBlock:
@@ -108,3 +113,14 @@ def test_sorting_is_chronological() -> None:
         ]
     )
     assert [block.start_time for block in sorted_blocks] == ["07:00", "09:15", "11:00"]
+
+
+def test_duplicate_project_number_is_detected_for_templates() -> None:
+    templates = [
+        ProjectTemplate(id="a", project_number="25344", display_name="Muster"),
+        ProjectTemplate(id="b", project_number="27050", display_name="Admin"),
+    ]
+
+    assert has_duplicate_project_number(templates, "25344")
+    assert not has_duplicate_project_number(templates, "25344", exclude_id="a")
+    assert not has_duplicate_project_number(templates, "99999")
