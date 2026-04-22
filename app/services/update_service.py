@@ -80,7 +80,7 @@ def version_parts(value: str) -> tuple[int, ...]:
     normalized = clean_version(value)
     parts = tuple(int(match) for match in VERSION_PART_PATTERN.findall(normalized))
     if not parts:
-        raise ValueError(f"Ungueltige Versionsangabe: {value!r}")
+        raise ValueError(f"Ungültige Versionsangabe: {value!r}")
     return parts
 
 
@@ -169,9 +169,7 @@ class GitHubReleaseUpdater:
 
         if expected_size and downloaded != expected_size:
             installer_path.unlink(missing_ok=True)
-            raise UpdateError(
-                "Der Installer wurde unvollstaendig heruntergeladen."
-            )
+            raise UpdateError("Der Installer wurde unvollständig heruntergeladen.")
 
         expected_sha256 = update.asset.sha256.strip().lower()
         if expected_sha256:
@@ -179,7 +177,7 @@ class GitHubReleaseUpdater:
             if actual_sha256 != expected_sha256:
                 installer_path.unlink(missing_ok=True)
                 raise UpdateError(
-                    "Die heruntergeladene Datei passt nicht zur erwarteten SHA256-Pruefsumme."
+                    "Die heruntergeladene Datei passt nicht zur erwarteten SHA256-Prüfsumme."
                 )
 
         return installer_path
@@ -226,7 +224,7 @@ class GitHubReleaseUpdater:
         except HTTPError as exc:
             if exc.code == 404:
                 raise UpdateError(
-                    "Es wurde noch kein GitHub Release fuer die App gefunden."
+                    "Es wurde noch kein GitHub Release für die App gefunden."
                 ) from exc
             raise UpdateError(
                 f"GitHub Releases konnte nicht gelesen werden (HTTP {exc.code})."
@@ -261,7 +259,9 @@ class GitHubReleaseUpdater:
             return None
 
         asset = self._select_asset(payload, latest_version)
-        release_name = str(payload.get("name") or f"{APP_NAME} {latest_version}").strip()
+        release_name = str(
+            payload.get("name") or f"{APP_NAME} {latest_version}"
+        ).strip()
         notes = str(payload.get("body") or "").strip()
         release_url = str(payload.get("html_url") or self.releases_page_url)
         published_at = str(payload.get("published_at") or "")
@@ -283,14 +283,12 @@ class GitHubReleaseUpdater:
             normalized = clean_version(raw_value)
             if VERSION_PART_PATTERN.search(normalized):
                 return normalized
-        raise UpdateError("Das GitHub Release enthaelt keine gueltige Versionsnummer.")
+        raise UpdateError("Das GitHub Release enthält keine gültige Versionsnummer.")
 
     def _select_asset(self, payload: dict, version: str) -> ReleaseAsset:
         assets = payload.get("assets", [])
         if not isinstance(assets, list) or not assets:
-            raise UpdateError(
-                "Im GitHub Release wurde kein Installer-Asset gefunden."
-            )
+            raise UpdateError("Im GitHub Release wurde kein Installer-Asset gefunden.")
 
         expected_name = f"{self.installer_prefix}{version}.exe"
         normalized_assets = [self._normalize_asset(item) for item in assets]
@@ -300,10 +298,9 @@ class GitHubReleaseUpdater:
                 return asset
 
         for asset in normalized_assets:
-            if (
-                asset.name.startswith(self.installer_prefix)
-                and asset.name.lower().endswith(".exe")
-            ):
+            if asset.name.startswith(
+                self.installer_prefix
+            ) and asset.name.lower().endswith(".exe"):
                 return asset
 
         raise UpdateError(
@@ -315,7 +312,7 @@ class GitHubReleaseUpdater:
         name = str(payload.get("name") or "").strip()
         download_url = str(payload.get("browser_download_url") or "").strip()
         if not name or not download_url:
-            raise UpdateError("Ein GitHub Release Asset ist unvollstaendig.")
+            raise UpdateError("Ein GitHub Release Asset ist unvollständig.")
 
         digest = str(payload.get("digest") or "").strip().lower()
         sha256 = ""

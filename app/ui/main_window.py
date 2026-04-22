@@ -87,11 +87,14 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(1500, self._check_for_updates_in_background)
 
     def closeEvent(self, event) -> None:
-        if self.update_download_worker is not None and self.update_download_worker.isRunning():
+        if (
+            self.update_download_worker is not None
+            and self.update_download_worker.isRunning()
+        ):
             QMessageBox.information(
                 self,
                 "Update",
-                "Der Update-Download laeuft noch. Bitte warte einen Moment.",
+                "Der Update-Download läuft noch. Bitte warte einen Moment.",
             )
             event.ignore()
             return
@@ -99,7 +102,10 @@ class MainWindow(QMainWindow):
         if self.worker is not None and self.worker.isRunning():
             self.worker.request_abort()
             self.worker.wait(2000)
-        if self.update_check_worker is not None and self.update_check_worker.isRunning():
+        if (
+            self.update_check_worker is not None
+            and self.update_check_worker.isRunning()
+        ):
             self.update_check_worker.wait(2000)
         super().closeEvent(event)
 
@@ -133,7 +139,9 @@ class MainWindow(QMainWindow):
         self.date_edit.setCalendarWidget(self._build_calendar_widget())
 
         today_button = QPushButton("Heute")
-        today_button.clicked.connect(lambda: self.date_edit.setDate(QDate.currentDate()))
+        today_button.clicked.connect(
+            lambda: self.date_edit.setDate(QDate.currentDate())
+        )
         save_button = QPushButton("Tag speichern")
         save_button.clicked.connect(self._persist_current_day)
         copy_button = QPushButton("Vortag kopieren")
@@ -532,20 +540,23 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self,
                     "Updates",
-                    "Fuer diese App ist noch kein Update-Service konfiguriert.",
+                    "Für diese App ist noch kein Update-Service konfiguriert.",
                 )
             return
-        if self.update_check_worker is not None and self.update_check_worker.isRunning():
+        if (
+            self.update_check_worker is not None
+            and self.update_check_worker.isRunning()
+        ):
             if manual:
                 QMessageBox.information(
                     self,
                     "Updates",
-                    "Die Update-Pruefung laeuft bereits.",
+                    "Die Update-Prüfung läuft bereits.",
                 )
             return
 
         if manual:
-            self._set_status("Pruefe auf Updates ...")
+            self._set_status("Prüfe auf Updates ...")
         self.update_button.setEnabled(False)
         self.update_check_worker = UpdateCheckWorker(self.updater, manual, self)
         self.update_check_worker.completed.connect(self._handle_update_check_result)
@@ -559,7 +570,7 @@ class MainWindow(QMainWindow):
 
         if result.error:
             if manual:
-                self._set_status("Update-Pruefung fehlgeschlagen")
+                self._set_status("Update-Prüfung fehlgeschlagen")
                 QMessageBox.warning(self, "Updates", result.error)
             else:
                 logger.warning("Background update check failed: %s", result.error)
@@ -571,7 +582,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self,
                     "Updates",
-                    f"Es ist keine neuere Version als v{__version__} verfuegbar.",
+                    f"Es ist keine neuere Version als v{__version__} verfügbar.",
                 )
             else:
                 logger.info("No newer version available")
@@ -579,7 +590,9 @@ class MainWindow(QMainWindow):
 
         update = result.update
         if not manual and self.preferences.skipped_update_version == update.version:
-            logger.info("Skipped update %s because user ignored it earlier", update.version)
+            logger.info(
+                "Skipped update %s because user ignored it earlier", update.version
+            )
             return
 
         self.pending_update = update
@@ -592,10 +605,10 @@ class MainWindow(QMainWindow):
 
     def _show_update_prompt(self, update: AppUpdate, manual: bool) -> None:
         dialog = QMessageBox(self)
-        dialog.setWindowTitle("Update verfuegbar")
+        dialog.setWindowTitle("Update verfügbar")
         dialog.setIcon(QMessageBox.Information)
         dialog.setText(
-            f"Version {update.version} ist verfuegbar.\n\n"
+            f"Version {update.version} ist verfügbar.\n\n"
             "Der Installer wird direkt aus GitHub Releases heruntergeladen."
         )
         dialog.setInformativeText(
@@ -605,11 +618,11 @@ class MainWindow(QMainWindow):
             dialog.setDetailedText(update.notes)
 
         install_button = dialog.addButton("Jetzt aktualisieren", QMessageBox.AcceptRole)
-        later_button = dialog.addButton("Spaeter", QMessageBox.RejectRole)
+        later_button = dialog.addButton("Später", QMessageBox.RejectRole)
         skip_button = None
         if not manual:
             skip_button = dialog.addButton(
-                "Diese Version ueberspringen",
+                "Diese Version überspringen",
                 QMessageBox.DestructiveRole,
             )
         dialog.setDefaultButton(install_button)
@@ -624,15 +637,18 @@ class MainWindow(QMainWindow):
         if skip_button is not None and clicked == skip_button:
             self.preferences.skipped_update_version = update.version
             self.service.save_preferences(self.preferences)
-            self._set_status(f"Update {update.version} uebersprungen")
+            self._set_status(f"Update {update.version} übersprungen")
             return
         if clicked == later_button and manual:
-            self._set_status("Update spaeter")
+            self._set_status("Update später")
 
     def _download_update(self, update: AppUpdate) -> None:
         if self.updater is None:
             return
-        if self.update_download_worker is not None and self.update_download_worker.isRunning():
+        if (
+            self.update_download_worker is not None
+            and self.update_download_worker.isRunning()
+        ):
             QMessageBox.information(
                 self,
                 "Update",
@@ -663,7 +679,9 @@ class MainWindow(QMainWindow):
         )
         self.update_download_worker.completed.connect(self._update_download_completed)
         self.update_download_worker.failed.connect(self._update_download_failed)
-        self.update_download_worker.finished.connect(self._cleanup_update_download_worker)
+        self.update_download_worker.finished.connect(
+            self._cleanup_update_download_worker
+        )
         self.update_download_worker.start()
 
     def _update_download_progress(self, downloaded: int, total: int) -> None:
