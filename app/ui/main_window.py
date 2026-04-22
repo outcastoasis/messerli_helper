@@ -421,9 +421,11 @@ class MainWindow(QMainWindow):
             preferences=self.preferences,
             templates=lambda: self.templates,
             save_preferences=self._save_preferences_only,
+            project_list_target=lambda: self.templates_widget.list_widget,
             product_target=lambda: self.productivity_group,
             template_target=lambda: getattr(self.templates_widget, "form_group", None),
             timeline_target=lambda: self.timeline_scroll,
+            fill_target=lambda: self.fill_button,
         )
 
     def _save_preferences_only(self) -> None:

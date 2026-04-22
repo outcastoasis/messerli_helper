@@ -14,6 +14,7 @@ onefile = os.environ.get("PYINSTALLER_ONEFILE", "0") == "1"
 app_name = APP_EXECUTABLE_NAME
 version_file = project_root / "packaging" / "windows" / "version_info.txt"
 icon_file = project_root / "packaging" / "windows" / "app.ico"
+splash_image_file = project_root / "packaging" / "windows" / "app-preview.png"
 
 exe_options = {
     "name": app_name,
@@ -60,12 +61,25 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+splash = None
+if splash_image_file.exists():
+    splash = Splash(
+        str(splash_image_file),
+        binaries=a.binaries,
+        datas=a.datas,
+        text_pos=None,
+        text_size=12,
+        minify_script=True,
+        always_on_top=True,
+    )
+
 if onefile:
     exe = EXE(
         pyz,
         a.scripts,
         a.binaries,
         a.datas,
+        *([splash, splash.binaries] if splash is not None else []),
         [],
         **exe_options,
     )
@@ -73,6 +87,7 @@ else:
     exe = EXE(
         pyz,
         a.scripts,
+        *([splash] if splash is not None else []),
         [],
         exclude_binaries=True,
         **exe_options,
@@ -81,6 +96,7 @@ else:
         exe,
         a.binaries,
         a.datas,
+        *([splash.binaries] if splash is not None else []),
         strip=False,
         upx=True,
         upx_exclude=[],

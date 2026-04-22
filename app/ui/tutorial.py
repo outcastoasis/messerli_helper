@@ -331,18 +331,22 @@ class TutorialController(QObject):
         preferences: AppPreferences,
         templates: Callable[[], list[ProjectTemplate]],
         save_preferences: Callable[[], None],
+        project_list_target: Callable[[], QWidget | None],
         product_target: Callable[[], QWidget | None],
         template_target: Callable[[], QWidget | None],
         timeline_target: Callable[[], QWidget | None],
+        fill_target: Callable[[], QWidget | None],
     ) -> None:
         super().__init__(window)
         self.window = window
         self.preferences = preferences
         self._templates = templates
         self._save_preferences = save_preferences
+        self._project_list_target = project_list_target
         self._product_target = product_target
         self._template_target = template_target
         self._timeline_target = timeline_target
+        self._fill_target = fill_target
 
         self._steps: list[TutorialStep] = []
         self._current_index = -1
@@ -545,6 +549,89 @@ class TutorialController(QObject):
         dialog.setModal(False)
         dialog.finished.connect(lambda _result: self.finish(mark_seen=True))
         return dialog
+
+    def _build_steps(self) -> list[TutorialStep]:
+        return [
+            TutorialStep(
+                title="Projektvorlagen auswählen und bearbeiten",
+                description=(
+                    "Hier siehst du die Liste aller gespeicherten Projekte. "
+                    "Wähle eine Vorlage aus, um sie darunter zu bearbeiten oder "
+                    "als Favorit hinzuzufügen beziehungsweise wieder zu entfernen."
+                ),
+                host_resolver=lambda: self.window,
+                target_resolver=self._project_list_target,
+            ),
+            TutorialStep(
+                title="Vorlage bearbeiten",
+                description=(
+                    "Hier legst du eine Projektnummer an, setzt sie bei Bedarf als "
+                    "Favorit und wählst eine Standardbemerkung. Diese Kombination "
+                    "erspart dir später viele Klicks im Zeitblock-Dialog."
+                ),
+                host_resolver=lambda: self.window,
+                target_resolver=self._template_target,
+            ),
+            TutorialStep(
+                title="Zeitslot per Drag erfassen",
+                description=(
+                    "Im Zeitstrahl ziehst du mit der Maus einfach von Start bis Ende. "
+                    "Sobald du loslässt, öffnet sich automatisch der Zeitblock-Dialog."
+                ),
+                host_resolver=lambda: self.window,
+                target_resolver=self._timeline_target,
+            ),
+            TutorialStep(
+                title="Projekt im Pop-up auswählen",
+                description=(
+                    "Im Dialog wählst du das Projekt aus der Liste oder direkt über "
+                    "die Favoriten-Chips. Wenn eine Vorlage eine Standardbemerkung "
+                    "hat, wird sie dabei direkt übernommen."
+                ),
+                host_resolver=lambda: self._demo_dialog,
+                target_resolver=lambda: (
+                    self._demo_dialog.project_section_widget
+                    if self._demo_dialog is not None
+                    else None
+                ),
+                on_enter=lambda controller: controller._ensure_demo_dialog(),
+            ),
+            TutorialStep(
+                title="Bemerkung passend setzen",
+                description=(
+                    "Direkt darunter wählst du die Bemerkung aus. So ist jeder "
+                    "Zeitblock sauber kategorisiert, zum Beispiel Admin, Meeting "
+                    "oder Sys. Installation."
+                ),
+                host_resolver=lambda: self._demo_dialog,
+                target_resolver=lambda: (
+                    self._demo_dialog.remark_section_widget
+                    if self._demo_dialog is not None
+                    else None
+                ),
+            ),
+            TutorialStep(
+                title="Produktivzeit im Blick behalten",
+                description=(
+                    "Unten rechts siehst du jederzeit deine Produktivzeit, das Soll "
+                    "und die Differenz. Damit kannst du vor dem Ausfüllen schnell "
+                    "kontrollieren, ob der Tag stimmig ist."
+                ),
+                host_resolver=lambda: self.window,
+                target_resolver=self._product_target,
+                on_enter=lambda controller: controller._close_demo_dialog(),
+            ),
+            TutorialStep(
+                title="Ausfüllen in Messerli",
+                description=(
+                    "Mit diesem Button startest du die Übertragung nach Messerli. "
+                    "Nach dem Klick wählst du zuerst im Messerli-Fenster das erste "
+                    "leere Auftragsfeld aus und bestätigst erst danach mit OK."
+                ),
+                host_resolver=lambda: self.window,
+                target_resolver=self._fill_target,
+            ),
+        ]
 
     def _ensure_demo_dialog(self) -> None:
         if self._demo_dialog is None:

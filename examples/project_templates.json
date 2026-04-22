@@ -1,17 +1,20 @@
 [
   {
-    "project_number": "25344",
-    "display_name": "Installation Musterprojekt",
-    "default_remark": "Sys. Installation"
+    "project_number": "0.31",
+    "display_name": "Büro",
+    "default_remark": "Meeting",
+    "is_favorite": false
   },
   {
-    "project_number": "26001",
-    "display_name": "AVOR Musterprojekt",
-    "default_remark": "Sys. AVOR"
+    "project_number": "0.33",
+    "display_name": "Int Aus und Weiterbildung",
+    "default_remark": "Meeting",
+    "is_favorite": true
   },
   {
     "project_number": "27050",
-    "display_name": "Admin intern",
-    "default_remark": "Admin"
+    "display_name": "Projekt Beispiel",
+    "default_remark": "Sys. Installation",
+    "is_favorite": false
   }
 ]
