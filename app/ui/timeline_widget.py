@@ -5,6 +5,7 @@ from PySide6.QtGui import (
     QAction,
     QColor,
     QContextMenuEvent,
+    QKeyEvent,
     QMouseEvent,
     QPainter,
     QPen,
@@ -51,10 +52,16 @@ class DayTimelineWidget(QWidget):
         self._drag_origin_minutes: int | None = None
         self._preview_start: int | None = None
         self._preview_end: int | None = None
+        self._selected_block_id: str | None = None
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
 
     def set_blocks(self, blocks: list[TimeBlock]) -> None:
         self.blocks = sort_blocks(blocks)
+        if self._selected_block_id and not any(
+            block.id == self._selected_block_id for block in self.blocks
+        ):
+            self._selected_block_id = None
         self.updateGeometry()
         self.update()
 
@@ -91,7 +98,10 @@ class DayTimelineWidget(QWidget):
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         block = self._block_at(event.position().toPoint())
         if block is not None:
+            self._clear_interaction_state()
             self.edit_requested.emit(block.id)
+            event.accept()
+            return
         super().mouseDoubleClickEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -99,11 +109,13 @@ class DayTimelineWidget(QWidget):
             super().mousePressEvent(event)
             return
 
+        self.setFocus(Qt.MouseFocusReason)
         point = event.position().toPoint()
         block = self._block_at(point)
         snapped_minutes = self._point_to_minutes(point)
         self._preview_start = None
         self._preview_end = None
+        self._set_selected_block(block.id if block is not None else None)
 
         if block is None:
             start_minutes = self._point_to_minutes(point, rounding="floor")
@@ -200,19 +212,26 @@ class DayTimelineWidget(QWidget):
                     minutes_to_time_text(self._preview_end),
                 )
 
-        self._drag_mode = None
-        self._drag_block_id = None
-        self._drag_start_minutes = None
-        self._drag_origin_minutes = None
-        self._preview_start = None
-        self._preview_end = None
-        self.update()
+        self._clear_interaction_state()
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in {Qt.Key_Delete, Qt.Key_Backspace}:
+            if self._selected_block_id is not None:
+                selected_block_id = self._selected_block_id
+                self._set_selected_block(None)
+                self._clear_interaction_state()
+                self.action_requested.emit("delete", selected_block_id)
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         block = self._block_at(event.pos())
         if block is None:
             return
+        self.setFocus(Qt.MouseFocusReason)
+        self._set_selected_block(block.id)
         menu = QMenu(self)
         edit_action = QAction("Bearbeiten", self)
         split_action = QAction("Teilen", self)
@@ -273,6 +292,12 @@ class DayTimelineWidget(QWidget):
             painter.setPen(QPen(color.darker(140), 1))
             painter.setBrush(color)
             painter.drawRoundedRect(rect, 8, 8)
+            if block.id == self._selected_block_id:
+                painter.save()
+                painter.setPen(QPen(QColor("#1D4ED8"), 2))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+                painter.restore()
             painter.setPen(QPen(self._text_color_for_background(color), 1))
             if block.is_break or block.is_compensation:
                 self._draw_default_block_text(painter, rect, block)
@@ -331,6 +356,21 @@ class DayTimelineWidget(QWidget):
 
     def _latest_supported_minutes(self) -> int:
         return TIMELINE_END_HOUR * 60
+
+    def _clear_interaction_state(self) -> None:
+        self._drag_mode = None
+        self._drag_block_id = None
+        self._drag_start_minutes = None
+        self._drag_origin_minutes = None
+        self._preview_start = None
+        self._preview_end = None
+        self.update()
+
+    def _set_selected_block(self, block_id: str | None) -> None:
+        if self._selected_block_id == block_id:
+            return
+        self._selected_block_id = block_id
+        self.update()
 
     def _draw_dimmed_timeline_ranges(self, painter: QPainter, grid_rect: QRect) -> None:
         shaded_ranges = [
@@ -396,13 +436,14 @@ class DayTimelineWidget(QWidget):
     def _draw_default_block_text(
         self, painter: QPainter, rect: QRect, block: TimeBlock
     ) -> None:
-        text = (
-            f"{self._project_label_for_block(block)}\n"
-            f"{block.remark}\n"
-            f"{block.start_time} - {block.end_time}"
-        )
-        painter.drawText(
-            rect.adjusted(8, 6, -8, -6), Qt.AlignLeft | Qt.TextWordWrap, text
+        self._draw_elided_block_lines(
+            painter,
+            rect.adjusted(8, 6, -8, -6),
+            [
+                self._project_label_for_block(block),
+                block.remark,
+                f"{block.start_time} - {block.end_time}",
+            ],
         )
 
     def _draw_work_block_text(
@@ -414,42 +455,79 @@ class DayTimelineWidget(QWidget):
             content_rect.setRight(max(content_rect.left(), badge_rect.left() - 8))
 
         project_line = self._project_name_for_block(block) or block.project_number
-        lines = [
-            project_line,
-            block.remark,
-            f"{block.start_time} - {block.end_time}",
-        ]
-        metrics = painter.fontMetrics()
-        line_height = metrics.lineSpacing()
+        self._draw_elided_block_lines(
+            painter,
+            content_rect,
+            [
+                project_line,
+                block.remark,
+                f"{block.start_time} - {block.end_time}",
+            ],
+            bold_first_line=True,
+        )
+
+    def _draw_elided_block_lines(
+        self,
+        painter: QPainter,
+        content_rect: QRect,
+        lines: list[str],
+        *,
+        bold_first_line: bool = False,
+    ) -> None:
+        if not lines or content_rect.width() <= 0 or content_rect.height() <= 0:
+            return
+
+        base_font = painter.font()
+        body_metrics = painter.fontMetrics()
+        body_line_height = body_metrics.lineSpacing()
         y = content_rect.top()
 
-        title_font = painter.font()
-        title_font.setBold(True)
         painter.save()
-        painter.setFont(title_font)
-        title_metrics = painter.fontMetrics()
-        title_rect = QRect(
+        painter.setClipRect(content_rect)
+
+        first_line = lines[0]
+        first_line_height = body_line_height
+        first_line_metrics = body_metrics
+        if bold_first_line:
+            first_line_font = painter.font()
+            first_line_font.setBold(True)
+            painter.setFont(first_line_font)
+            first_line_metrics = painter.fontMetrics()
+            first_line_height = first_line_metrics.lineSpacing()
+
+        first_line_rect = QRect(
             content_rect.left(),
             y,
             content_rect.width(),
-            title_metrics.lineSpacing(),
+            first_line_height,
         )
         painter.drawText(
-            title_rect,
+            first_line_rect,
             Qt.AlignLeft | Qt.AlignVCenter,
-            title_metrics.elidedText(project_line, Qt.ElideRight, content_rect.width()),
+            first_line_metrics.elidedText(
+                first_line, Qt.ElideRight, content_rect.width()
+            ),
         )
-        painter.restore()
+        y += first_line_height
 
-        y += title_metrics.lineSpacing()
+        if bold_first_line:
+            painter.setFont(base_font)
+
         for line in lines[1:]:
-            line_rect = QRect(content_rect.left(), y, content_rect.width(), line_height)
+            line_rect = QRect(
+                content_rect.left(),
+                y,
+                content_rect.width(),
+                body_line_height,
+            )
             painter.drawText(
                 line_rect,
                 Qt.AlignLeft | Qt.AlignVCenter,
-                metrics.elidedText(line, Qt.ElideRight, content_rect.width()),
+                body_metrics.elidedText(line, Qt.ElideRight, content_rect.width()),
             )
-            y += line_height
+            y += body_line_height
+
+        painter.restore()
 
     def _draw_project_badge(
         self, painter: QPainter, content_rect: QRect, project_number: str
