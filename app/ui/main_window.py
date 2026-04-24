@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QDate, QTimer, Qt
-from PySide6.QtGui import QColor, QTextCharFormat
+from PySide6.QtGui import QAction, QColor, QTextCharFormat
 from PySide6.QtWidgets import (
     QApplication,
     QCalendarWidget,
@@ -16,11 +16,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressDialog,
     QPushButton,
     QScrollArea,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -76,6 +78,11 @@ class MainWindow(QMainWindow):
         self.countdown_remaining = 0
         self.countdown_timer = QTimer(self)
         self.countdown_timer.timeout.connect(self._countdown_tick)
+        self.day_action_status_timer = QTimer(self)
+        self.day_action_status_timer.setSingleShot(True)
+        self.day_action_status_timer.timeout.connect(
+            lambda: self._set_day_action_status("")
+        )
         self.worker: AutomationWorker | None = None
         self.update_check_worker: UpdateCheckWorker | None = None
         self.update_download_worker: UpdateDownloadWorker | None = None
@@ -84,6 +91,8 @@ class MainWindow(QMainWindow):
         self.pending_steps = []
         self.tutorial_controller: TutorialController | None = None
         self._tutorial_start_scheduled = False
+        self._copied_day_blocks: list[TimeBlock] = []
+        self._copied_day_source_date: str | None = None
 
         self.setWindowTitle(APP_NAME)
         self.resize(920, 920)
@@ -126,6 +135,7 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._position_day_action_status()
         if self._tutorial_start_scheduled or (
             not APP_ALWAYS_SHOW_TUTORIAL_ON_START
             and self.preferences.tutorial_completed
@@ -133,6 +143,10 @@ class MainWindow(QMainWindow):
             return
         self._tutorial_start_scheduled = True
         QTimer.singleShot(600, self._auto_start_tutorial)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._position_day_action_status()
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -170,14 +184,39 @@ class MainWindow(QMainWindow):
         today_button.clicked.connect(
             lambda: self.date_edit.setDate(QDate.currentDate())
         )
-        copy_button = QPushButton("Vortag kopieren")
-        copy_button.clicked.connect(self._copy_previous_day)
+        self.copy_day_action = QAction("Diesen Tag kopieren", self)
+        self.copy_day_action.triggered.connect(self._copy_current_day)
+        self.paste_day_action = QAction("Einfügen", self)
+        self.paste_day_action.triggered.connect(self._paste_copied_day)
+        self.paste_previous_day_action = QAction("Vortag einfügen", self)
+        self.paste_previous_day_action.triggered.connect(self._paste_previous_day)
+
+        copy_paste_menu = QMenu(self)
+        copy_paste_menu.addAction(self.copy_day_action)
+        copy_paste_menu.addAction(self.paste_day_action)
+        copy_paste_menu.addAction(self.paste_previous_day_action)
+
+        self.copy_paste_button = QToolButton()
+        self.copy_paste_button.setObjectName("ToolbarMenuButton")
+        self.copy_paste_button.setText("Copy/Paste")
+        self.copy_paste_button.setPopupMode(QToolButton.InstantPopup)
+        self.copy_paste_button.setMenu(copy_paste_menu)
+        self._update_copy_paste_actions()
 
         toolbar.addWidget(QLabel("Datum"))
         toolbar.addWidget(self.date_edit)
         toolbar.addWidget(today_button)
-        toolbar.addWidget(copy_button)
+        toolbar.addWidget(self.copy_paste_button)
         main_layout.addLayout(toolbar)
+
+        self.day_action_status_label = QLabel("", self)
+        self.day_action_status_label.setObjectName("ToolbarStatusLabel")
+        self.day_action_status_label.setWordWrap(False)
+        self.day_action_status_label.setAutoFillBackground(False)
+        self.day_action_status_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.day_action_status_label.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.day_action_status_label.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.day_action_status_label.setVisible(False)
 
         splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(splitter, stretch=1)
@@ -290,6 +329,14 @@ class MainWindow(QMainWindow):
                 color: #475569;
                 padding: 0 2px 2px 2px;
             }
+            QLabel#ToolbarStatusLabel {
+                color: #475569;
+                background: transparent;
+                background-color: rgba(0, 0, 0, 0);
+                border: none;
+                padding: 0;
+                font-size: 11px;
+            }
             QLabel#StatusLabel {
                 color: #334155;
                 font-weight: 600;
@@ -344,6 +391,31 @@ class MainWindow(QMainWindow):
                 border-color: #60A5FA;
                 color: #1D4ED8;
                 font-weight: 600;
+            }
+            QToolButton#ToolbarMenuButton {
+                border: 1px solid #CBD5E1;
+                border-radius: 10px;
+                padding: 8px 28px 8px 12px;
+                background: #FFFFFF;
+                color: #0F172A;
+                font-weight: 500;
+            }
+            QToolButton#ToolbarMenuButton:hover {
+                background: #F8FAFC;
+                border-color: #94A3B8;
+            }
+            QToolButton#ToolbarMenuButton:pressed {
+                background: #EEF2FF;
+            }
+            QToolButton#ToolbarMenuButton:disabled {
+                background: #E2E8F0;
+                color: #94A3B8;
+                border-color: #CBD5E1;
+            }
+            QToolButton#ToolbarMenuButton::menu-indicator {
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                left: -8px;
             }
             QPushButton#PrimaryButton {
                 background: #E0F2FE;
@@ -900,6 +972,97 @@ class MainWindow(QMainWindow):
             self.preferences.last_project_number = block.project_number
             self.preferences.last_work_remark = block.remark
 
+    def _copy_current_day(self) -> None:
+        if not self.blocks:
+            QMessageBox.information(
+                self,
+                "Diesen Tag kopieren",
+                "Für diesen Tag wurden keine Einträge gefunden.",
+            )
+            return
+        self._copied_day_blocks = self._clone_blocks_for_date(
+            self.blocks,
+            self.current_date,
+        )
+        self._copied_day_source_date = self.current_date
+        self._update_copy_paste_actions()
+        self._set_day_action_status(
+            f"{len(self._copied_day_blocks)} Einträge von "
+            f"{self._format_day_label(self.current_date)} kopiert"
+        )
+
+    def _paste_copied_day(self) -> None:
+        if not self._copied_day_blocks:
+            return
+        if not self._confirm_day_overwrite("Einfügen"):
+            return
+        self._replace_current_day_blocks(self._copied_day_blocks)
+        source_label = (
+            self._format_day_label(self._copied_day_source_date)
+            if self._copied_day_source_date
+            else "Zwischenablage"
+        )
+        self._set_day_action_status(f"Einträge von {source_label} eingefügt")
+
+    def _paste_previous_day(self) -> None:
+        current = date.fromisoformat(self.current_date)
+        previous = (current - timedelta(days=1)).isoformat()
+        previous_blocks = self.service.load_day(previous)
+        if not previous_blocks:
+            QMessageBox.information(
+                self,
+                "Vortag einfügen",
+                "Für den Vortag wurden keine Einträge gefunden.",
+            )
+            return
+        if not self._confirm_day_overwrite("Vortag einfügen"):
+            return
+        self._replace_current_day_blocks(previous_blocks)
+        self._set_day_action_status("Vortag eingefügt")
+
+    def _update_copy_paste_actions(self) -> None:
+        self.paste_day_action.setEnabled(bool(self._copied_day_blocks))
+
+    def _confirm_day_overwrite(self, title: str) -> bool:
+        if not self.blocks:
+            return True
+        return (
+            QMessageBox.question(
+                self,
+                title,
+                "Dieser Tag enthält bereits Einträge und wird überschrieben.",
+                QMessageBox.Ok | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            == QMessageBox.Ok
+        )
+
+    def _replace_current_day_blocks(self, source_blocks: list[TimeBlock]) -> None:
+        self.blocks = self._clone_blocks_for_date(source_blocks, self.current_date)
+        self._persist_current_day()
+        self._refresh_lists()
+
+    def _clone_blocks_for_date(
+        self, source_blocks: list[TimeBlock], target_date: str
+    ) -> list[TimeBlock]:
+        return [
+            TimeBlock(
+                date=target_date,
+                start_time=block.start_time,
+                end_time=block.end_time,
+                block_type=block.block_type,
+                project_number=block.project_number,
+                remark=block.remark,
+            )
+            for block in source_blocks
+        ]
+
+    def _format_day_label(self, day: str) -> str:
+        qdate = QDate.fromString(day, "yyyy-MM-dd")
+        if qdate.isValid():
+            return qdate.toString("dd.MM.yyyy")
+        return day
+
     def _copy_previous_day(self) -> None:
         current = date.fromisoformat(self.current_date)
         previous = (current - timedelta(days=1)).isoformat()
@@ -928,6 +1091,35 @@ class MainWindow(QMainWindow):
 
     def _find_block(self, block_id: str) -> TimeBlock | None:
         return next((item for item in self.blocks if item.id == block_id), None)
+
+    def _position_day_action_status(self) -> None:
+        if not self.day_action_status_label.isVisible():
+            return
+        button_bottom_right = self.copy_paste_button.mapTo(
+            self,
+            self.copy_paste_button.rect().bottomRight(),
+        )
+        x = button_bottom_right.x() - self.day_action_status_label.width()
+        x = max(
+            12,
+            min(
+                x,
+                self.width() - self.day_action_status_label.width() - 12,
+            ),
+        )
+        y = button_bottom_right.y() + 6
+        self.day_action_status_label.move(x, y)
+
+    def _set_day_action_status(self, message: str) -> None:
+        self.day_action_status_label.setText(message)
+        self.day_action_status_label.adjustSize()
+        self.day_action_status_label.setVisible(bool(message))
+        if message:
+            self._position_day_action_status()
+            self.day_action_status_label.raise_()
+            self.day_action_status_timer.start(3500)
+        else:
+            self.day_action_status_timer.stop()
 
     def _set_status(self, message: str) -> None:
         self.status_label.setText(message)
