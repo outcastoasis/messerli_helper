@@ -93,6 +93,7 @@ class MainWindow(QMainWindow):
         self._tutorial_start_scheduled = False
         self._copied_day_blocks: list[TimeBlock] = []
         self._copied_day_source_date: str | None = None
+        self._calendar_selected_date = QDate.currentDate()
 
         self.setWindowTitle(APP_NAME)
         self.resize(920, 920)
@@ -178,7 +179,20 @@ class MainWindow(QMainWindow):
         self.date_edit.setDisplayFormat("dd.MM.yyyy")
         self.date_edit.setDate(QDate.currentDate())
         self.date_edit.dateChanged.connect(self._on_date_changed)
-        self.date_edit.setCalendarWidget(self._build_calendar_widget())
+        self.calendar_widget = self._build_calendar_widget()
+        self.date_edit.setCalendarWidget(self.calendar_widget)
+
+        previous_day_button = QToolButton()
+        previous_day_button.setObjectName("DayNavButton")
+        previous_day_button.setArrowType(Qt.LeftArrow)
+        previous_day_button.setAutoRaise(True)
+        previous_day_button.clicked.connect(lambda: self._shift_current_day(-1))
+
+        next_day_button = QToolButton()
+        next_day_button.setObjectName("DayNavButton")
+        next_day_button.setArrowType(Qt.RightArrow)
+        next_day_button.setAutoRaise(True)
+        next_day_button.clicked.connect(lambda: self._shift_current_day(1))
 
         today_button = QPushButton("Heute")
         today_button.clicked.connect(
@@ -203,8 +217,16 @@ class MainWindow(QMainWindow):
         self.copy_paste_button.setMenu(copy_paste_menu)
         self._update_copy_paste_actions()
 
+        date_nav_widget = QWidget()
+        date_nav_layout = QHBoxLayout(date_nav_widget)
+        date_nav_layout.setContentsMargins(0, 0, 0, 0)
+        date_nav_layout.setSpacing(2)
+        date_nav_layout.addWidget(previous_day_button)
+        date_nav_layout.addWidget(self.date_edit)
+        date_nav_layout.addWidget(next_day_button)
+
         toolbar.addWidget(QLabel("Datum"))
-        toolbar.addWidget(self.date_edit)
+        toolbar.addWidget(date_nav_widget)
         toolbar.addWidget(today_button)
         toolbar.addWidget(self.copy_paste_button)
         main_layout.addLayout(toolbar)
@@ -417,6 +439,22 @@ class MainWindow(QMainWindow):
                 subcontrol-position: center right;
                 left: -8px;
             }
+            QToolButton#DayNavButton {
+                border: none;
+                border-radius: 8px;
+                padding: 6px;
+                min-width: 14px;
+                min-height: 14px;
+                background: transparent;
+                color: #475569;
+            }
+            QToolButton#DayNavButton:hover {
+                background: #E2E8F0;
+                color: #0F172A;
+            }
+            QToolButton#DayNavButton:pressed {
+                background: #CBD5E1;
+            }
             QPushButton#PrimaryButton {
                 background: #E0F2FE;
                 border-color: #38BDF8;
@@ -480,12 +518,44 @@ class MainWindow(QMainWindow):
         calendar = QCalendarWidget(self)
         calendar.setGridVisible(False)
         calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        self._update_calendar_formats(calendar, self.date_edit.date())
+        return calendar
+
+    def _update_calendar_formats(
+        self, calendar: QCalendarWidget, selected_date: QDate
+    ) -> None:
+        default_format = QTextCharFormat()
+        today = QDate.currentDate()
+        if selected_date.isValid():
+            calendar.setSelectedDate(selected_date)
+
+        if self._calendar_selected_date.isValid():
+            calendar.setDateTextFormat(self._calendar_selected_date, default_format)
+        calendar.setDateTextFormat(today, default_format)
 
         today_format = QTextCharFormat()
         today_format.setBackground(QColor("#DCFCE7"))
         today_format.setForeground(QColor("#166534"))
-        calendar.setDateTextFormat(QDate.currentDate(), today_format)
-        return calendar
+        today_format.setFontWeight(600)
+
+        selected_format = QTextCharFormat()
+        selected_format.setBackground(QColor("#DBEAFE"))
+        selected_format.setForeground(QColor("#1D4ED8"))
+        selected_format.setFontWeight(600)
+
+        selected_today_format = QTextCharFormat()
+        selected_today_format.setBackground(QColor("#BBF7D0"))
+        selected_today_format.setForeground(QColor("#166534"))
+        selected_today_format.setFontWeight(700)
+
+        if selected_date == today:
+            calendar.setDateTextFormat(today, selected_today_format)
+        else:
+            calendar.setDateTextFormat(today, today_format)
+            if selected_date.isValid():
+                calendar.setDateTextFormat(selected_date, selected_format)
+
+        self._calendar_selected_date = selected_date
 
     def _create_tutorial_controller(self) -> None:
         self.tutorial_controller = TutorialController(
@@ -502,6 +572,9 @@ class MainWindow(QMainWindow):
 
     def _save_preferences_only(self) -> None:
         self.service.save_preferences(self.preferences)
+
+    def _shift_current_day(self, offset_days: int) -> None:
+        self.date_edit.setDate(self.date_edit.date().addDays(offset_days))
 
     def _auto_start_tutorial(self) -> None:
         if not self.isVisible():
@@ -520,6 +593,7 @@ class MainWindow(QMainWindow):
         self.tutorial_controller.start()
 
     def _on_date_changed(self, qdate: QDate) -> None:
+        self._update_calendar_formats(self.calendar_widget, qdate)
         new_date = qdate.toPython().isoformat()
         if new_date == self.current_date:
             return
@@ -536,6 +610,7 @@ class MainWindow(QMainWindow):
             self.date_edit.blockSignals(True)
             self.date_edit.setDate(qdate)
             self.date_edit.blockSignals(False)
+        self._update_calendar_formats(self.calendar_widget, qdate)
         self._set_status("bereit")
         logger.info("Loaded day %s with %s blocks", day, len(self.blocks))
 
