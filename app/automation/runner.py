@@ -60,6 +60,8 @@ class AutomationWorker(QThread):
                     )
                 elif step.action == "press":
                     pyautogui.press(step.value)
+                elif step.action == "wait":
+                    time.sleep(float(step.value))
                 else:
                     raise RuntimeError(f"Unbekannter Automation-Schritt: {step.action}")
                 time.sleep(self._post_step_delay(step))
@@ -95,4 +97,6 @@ class AutomationWorker(QThread):
             return max(self.typing_interval * 1.75, 0.22)
         if step.action == "write":
             return max(self.typing_interval, 0.12)
+        if step.action == "wait":
+            return 0
         return max(self.typing_interval, 0.1)

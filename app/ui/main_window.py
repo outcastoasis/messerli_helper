@@ -10,6 +10,7 @@ from PySide6.QtGui import QAction, QColor, QTextCharFormat
 from PySide6.QtWidgets import (
     QApplication,
     QCalendarWidget,
+    QCheckBox,
     QDateEdit,
     QGroupBox,
     QHBoxLayout,
@@ -33,6 +34,8 @@ from app.automation.sequence import build_steps_for_blocks
 from app.constants import (
     APP_ALWAYS_SHOW_TUTORIAL_ON_START,
     APP_NAME,
+    BLOCK_TYPE_BREAK,
+    BLOCK_TYPE_WORK,
     TIMELINE_DEFAULT_VISIBLE_HOUR,
 )
 from app.models.preferences import AppPreferences
@@ -50,6 +53,7 @@ from app.ui.template_panel import ProjectTemplatesWidget
 from app.ui.timeline_widget import DayTimelineWidget
 from app.ui.tutorial import TutorialController
 from app.ui.update_workers import UpdateCheckWorker, UpdateDownloadWorker
+from app.utils.paths import get_bundle_dir
 from app.utils.time_utils import format_duration_minutes
 from app.utils.windows import (
     activate_window,
@@ -83,12 +87,19 @@ class MainWindow(QMainWindow):
         self.day_action_status_timer.timeout.connect(
             lambda: self._set_day_action_status("")
         )
+        self.lunch_expenses_notice_timer = QTimer(self)
+        self.lunch_expenses_notice_timer.setSingleShot(True)
+        self.lunch_expenses_notice_timer.timeout.connect(
+            lambda: self._set_lunch_expenses_notice("")
+        )
         self.worker: AutomationWorker | None = None
         self.update_check_worker: UpdateCheckWorker | None = None
         self.update_download_worker: UpdateDownloadWorker | None = None
         self.update_progress_dialog: QProgressDialog | None = None
         self.pending_update: AppUpdate | None = None
         self.pending_steps = []
+        self._lunch_expenses_manual_override = False
+        self._updating_lunch_expenses_checkbox = False
         self.tutorial_controller: TutorialController | None = None
         self._tutorial_start_scheduled = False
         self._copied_day_blocks: list[TimeBlock] = []
@@ -137,6 +148,7 @@ class MainWindow(QMainWindow):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self._position_day_action_status()
+        self._position_lunch_expenses_notice()
         if self._tutorial_start_scheduled or (
             not APP_ALWAYS_SHOW_TUTORIAL_ON_START
             and self.preferences.tutorial_completed
@@ -148,6 +160,7 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._position_day_action_status()
+        self._position_lunch_expenses_notice()
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -240,6 +253,15 @@ class MainWindow(QMainWindow):
         self.day_action_status_label.setAttribute(Qt.WA_NoSystemBackground, True)
         self.day_action_status_label.setVisible(False)
 
+        self.lunch_expenses_notice_label = QLabel("", self)
+        self.lunch_expenses_notice_label.setObjectName("LunchExpensesNotice")
+        self.lunch_expenses_notice_label.setWordWrap(True)
+        self.lunch_expenses_notice_label.setMaximumWidth(320)
+        self.lunch_expenses_notice_label.setAttribute(
+            Qt.WA_TransparentForMouseEvents, True
+        )
+        self.lunch_expenses_notice_label.setVisible(False)
+
         splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(splitter, stretch=1)
 
@@ -311,11 +333,51 @@ class MainWindow(QMainWindow):
         controls_layout.setContentsMargins(10, 14, 10, 10)
         self.status_label = QLabel("bereit")
         self.status_label.setObjectName("StatusLabel")
+        self.lunch_expenses_checkbox = QCheckBox("Inkl. Mittagspesen")
+        checked_icon = (
+            get_bundle_dir() / "app" / "ui" / "assets" / "checkbox_checked.svg"
+        ).as_posix()
+        self.lunch_expenses_checkbox.setStyleSheet(
+            """
+            QCheckBox {
+                spacing: 10px;
+                padding: 2px 0;
+                background: transparent;
+                color: #0F172A;
+                font-weight: 500;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+                border: 1px solid #94A3B8;
+                border-radius: 5px;
+                background: #FFFFFF;
+            }
+            QCheckBox::indicator:checked {
+                image: url("%s");
+                background: transparent;
+                border: none;
+            }
+            QCheckBox::indicator:unchecked:hover,
+            QCheckBox::indicator:checked:hover {
+                border: 1px solid #60A5FA;
+            }
+            """
+            % checked_icon
+        )
+        self.lunch_expenses_checkbox.stateChanged.connect(
+            self._lunch_expenses_checkbox_changed
+        )
         self.fill_button = QPushButton("Ausfüllen in Messerli")
         self.fill_button.setObjectName("PrimaryButton")
         self.fill_button.clicked.connect(self._prepare_fill)
+        fill_options_layout = QHBoxLayout()
+        fill_options_layout.setContentsMargins(0, 0, 0, 0)
+        fill_options_layout.setSpacing(10)
+        fill_options_layout.addWidget(self.lunch_expenses_checkbox)
+        fill_options_layout.addWidget(self.fill_button, stretch=1)
         controls_layout.addWidget(self.status_label)
-        controls_layout.addWidget(self.fill_button)
+        controls_layout.addLayout(fill_options_layout)
         sidebar_layout.addWidget(controls_group)
         sidebar_layout.addStretch()
 
@@ -358,6 +420,15 @@ class MainWindow(QMainWindow):
                 border: none;
                 padding: 0;
                 font-size: 11px;
+            }
+            QLabel#LunchExpensesNotice {
+                color: #0F172A;
+                background: #FFFFFF;
+                border: 1px solid #F59E0B;
+                border-radius: 8px;
+                padding: 8px 10px;
+                font-size: 12px;
+                font-weight: 600;
             }
             QLabel#StatusLabel {
                 color: #334155;
@@ -602,6 +673,7 @@ class MainWindow(QMainWindow):
 
     def _load_day(self, day: str) -> None:
         self.current_date = day
+        self._lunch_expenses_manual_override = False
         self.blocks = self.service.load_day(day)
         self.timeline.set_blocks(self.blocks)
         self._refresh_lists()
@@ -649,6 +721,60 @@ class MainWindow(QMainWindow):
         self.fill_button.setEnabled(
             bool(self.blocks) and not issues and self.worker is None
         )
+        self.lunch_expenses_checkbox.setEnabled(self.worker is None)
+        self._update_lunch_expenses_checkbox()
+
+    def _lunch_expenses_checkbox_changed(self, _state: int) -> None:
+        if self._updating_lunch_expenses_checkbox:
+            return
+        self._lunch_expenses_manual_override = True
+        self._show_lunch_expenses_warning()
+
+    def _update_lunch_expenses_checkbox(self) -> None:
+        if self._lunch_expenses_manual_override:
+            return
+        self._updating_lunch_expenses_checkbox = True
+        try:
+            self.lunch_expenses_checkbox.setChecked(
+                self._should_include_lunch_expenses()
+            )
+        finally:
+            self._updating_lunch_expenses_checkbox = False
+
+    def _should_include_lunch_expenses(self) -> bool:
+        return self._has_eligible_drive() and self._has_lunch_break()
+
+    def _has_eligible_drive(self) -> bool:
+        has_eligible_drive = False
+        for block in self.blocks:
+            if block.block_type != BLOCK_TYPE_WORK or block.remark != "Fahrt":
+                continue
+            try:
+                if block.duration_minutes >= 15:
+                    has_eligible_drive = True
+                    break
+            except ValueError:
+                continue
+        return has_eligible_drive
+
+    def _has_lunch_break(self) -> bool:
+        return any(
+            block.block_type == BLOCK_TYPE_BREAK and block.remark == "Mittag"
+            for block in self.blocks
+        )
+
+    def _show_lunch_expenses_warning(self) -> None:
+        message = ""
+        if self.lunch_expenses_checkbox.isChecked():
+            if not self._has_lunch_break():
+                message = (
+                    "Mittagspesen ist aktiviert, aber es wurde kein Mittag-Block "
+                    "gefunden."
+                )
+            elif not self._has_eligible_drive():
+                message = "Mittagspesen ist aktiviert aber keine Fahrt wurde eingetragen!"
+        if message:
+            self._set_lunch_expenses_notice(message)
 
     def _create_block_from_drag(self, start_time: str, end_time: str) -> None:
         block = TimeBlock(
@@ -956,7 +1082,10 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.pending_steps = build_steps_for_blocks(self.blocks)
+        self.pending_steps = build_steps_for_blocks(
+            self.blocks,
+            include_lunch_expenses=self.lunch_expenses_checkbox.isChecked(),
+        )
         message = (
             "Bitte jetzt das erste leere Auftragsfeld in Messerli anklicken.\n\n"
             "Nach dem Bestätigen startet ein 3-Sekunden-Countdown. ESC bricht sofort ab."
@@ -967,6 +1096,7 @@ class MainWindow(QMainWindow):
 
         self.countdown_remaining = max(1, self.preferences.countdown_seconds)
         self.fill_button.setEnabled(False)
+        self.lunch_expenses_checkbox.setEnabled(False)
         self._set_status(f"Countdown läuft: {self.countdown_remaining}")
         self.countdown_timer.start(1000)
         if target_window is not None:
@@ -1185,6 +1315,30 @@ class MainWindow(QMainWindow):
         y = button_bottom_right.y() + 6
         self.day_action_status_label.move(x, y)
 
+    def _position_lunch_expenses_notice(self) -> None:
+        if not self.lunch_expenses_notice_label.isVisible():
+            return
+        checkbox_bottom_left = self.lunch_expenses_checkbox.mapTo(
+            self,
+            self.lunch_expenses_checkbox.rect().bottomLeft(),
+        )
+        checkbox_top_left = self.lunch_expenses_checkbox.mapTo(
+            self,
+            self.lunch_expenses_checkbox.rect().topLeft(),
+        )
+        x = max(
+            12,
+            min(
+                checkbox_bottom_left.x(),
+                self.width() - self.lunch_expenses_notice_label.width() - 12,
+            ),
+        )
+        y = checkbox_bottom_left.y() + 8
+        if y + self.lunch_expenses_notice_label.height() > self.height() - 12:
+            y = checkbox_top_left.y() - self.lunch_expenses_notice_label.height() - 8
+        y = max(12, y)
+        self.lunch_expenses_notice_label.move(x, y)
+
     def _set_day_action_status(self, message: str) -> None:
         self.day_action_status_label.setText(message)
         self.day_action_status_label.adjustSize()
@@ -1195,6 +1349,17 @@ class MainWindow(QMainWindow):
             self.day_action_status_timer.start(3500)
         else:
             self.day_action_status_timer.stop()
+
+    def _set_lunch_expenses_notice(self, message: str) -> None:
+        self.lunch_expenses_notice_label.setText(message)
+        self.lunch_expenses_notice_label.adjustSize()
+        self.lunch_expenses_notice_label.setVisible(bool(message))
+        if message:
+            self._position_lunch_expenses_notice()
+            self.lunch_expenses_notice_label.raise_()
+            self.lunch_expenses_notice_timer.start(3500)
+        else:
+            self.lunch_expenses_notice_timer.stop()
 
     def _set_status(self, message: str) -> None:
         self.status_label.setText(message)
