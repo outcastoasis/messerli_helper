@@ -8,6 +8,7 @@ from app.constants import (
     BLOCK_TYPE_WORK,
     BREAK_REMARKS,
     COMPENSATION_REMARKS,
+    GENERAL_WORK_REMARK,
     WORK_REMARKS,
 )
 from app.models.project_template import ProjectTemplate
@@ -87,6 +88,19 @@ def validate_block(block: TimeBlock) -> list[ValidationIssue]:
             ValidationIssue(
                 "remark_invalid",
                 "Bemerkung ist für Kompensation nicht erlaubt.",
+                block.id,
+            )
+        )
+
+    if (
+        block.block_type == BLOCK_TYPE_WORK
+        and block.remark == GENERAL_WORK_REMARK
+        and not block.custom_remark.strip()
+    ):
+        issues.append(
+            ValidationIssue(
+                "custom_remark_required",
+                "Allgemeine Bemerkung darf nicht leer sein.",
                 block.id,
             )
         )

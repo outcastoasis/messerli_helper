@@ -62,6 +62,18 @@ def test_invalid_remark_is_detected() -> None:
     assert any(issue.code == "remark_invalid" for issue in issues)
 
 
+def test_general_remark_requires_custom_text() -> None:
+    issues = validate_blocks([make_block(remark="10: Allgemein", custom_remark="")])
+    assert any(issue.code == "custom_remark_required" for issue in issues)
+
+
+def test_general_remark_with_custom_text_is_accepted() -> None:
+    issues = validate_blocks(
+        [make_block(remark="10: Allgemein", custom_remark="Individuelle Abklaerung")]
+    )
+    assert issues == []
+
+
 def test_start_must_be_before_end() -> None:
     issues = validate_blocks([make_block(start_time="10:00", end_time="10:00")])
     assert any(issue.code == "time_order" for issue in issues)

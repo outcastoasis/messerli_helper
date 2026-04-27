@@ -1258,6 +1258,7 @@ class MainWindow(QMainWindow):
                 block_type=block.block_type,
                 project_number=block.project_number,
                 remark=block.remark,
+                custom_remark=block.custom_remark,
             )
             for block in source_blocks
         ]
@@ -1287,6 +1288,7 @@ class MainWindow(QMainWindow):
                 block_type=block.block_type,
                 project_number=block.project_number,
                 remark=block.remark,
+                custom_remark=block.custom_remark,
             )
             for block in previous_blocks
         ]

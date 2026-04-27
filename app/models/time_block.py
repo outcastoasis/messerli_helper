@@ -17,6 +17,7 @@ class TimeBlock:
     block_type: str = "work"
     project_number: str = ""
     remark: str = ""
+    custom_remark: str = ""
 
     @property
     def start_minutes(self) -> int:
@@ -61,6 +62,7 @@ class TimeBlock:
             "block_type": self.block_type,
             "project_number": self.project_number,
             "remark": self.remark,
+            "custom_remark": self.custom_remark,
         }
 
     @classmethod
@@ -73,4 +75,5 @@ class TimeBlock:
             block_type=str(payload.get("block_type", "work")),
             project_number=str(payload.get("project_number", "")),
             remark=str(payload.get("remark", "")),
+            custom_remark=str(payload.get("custom_remark", "")),
         )

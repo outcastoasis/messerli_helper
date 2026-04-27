@@ -62,6 +62,21 @@ def test_save_and_load_templates() -> None:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def test_time_block_loads_without_custom_remark() -> None:
+    block = TimeBlock.from_dict(
+        {
+            "date": "2026-04-15",
+            "start_time": "06:30",
+            "end_time": "10:00",
+            "block_type": "work",
+            "project_number": "25344",
+            "remark": "Sys. Installation",
+        }
+    )
+
+    assert block.custom_remark == ""
+
+
 def test_save_and_load_preferences() -> None:
     temp_dir = make_test_dir("preferences")
     try:

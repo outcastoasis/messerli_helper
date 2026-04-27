@@ -441,7 +441,7 @@ class DayTimelineWidget(QWidget):
             rect.adjusted(8, 6, -8, -6),
             [
                 self._project_label_for_block(block),
-                block.remark,
+                self._remark_label_for_block(block),
                 f"{block.start_time} - {block.end_time}",
             ],
         )
@@ -460,11 +460,15 @@ class DayTimelineWidget(QWidget):
             content_rect,
             [
                 project_line,
-                block.remark,
+                self._remark_label_for_block(block),
                 f"{block.start_time} - {block.end_time}",
             ],
             bold_first_line=True,
         )
+
+    @staticmethod
+    def _remark_label_for_block(block: TimeBlock) -> str:
+        return block.custom_remark.strip() or block.remark
 
     def _draw_elided_block_lines(
         self,

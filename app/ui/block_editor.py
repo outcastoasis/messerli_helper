@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLayout,
     QLayoutItem,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -25,6 +26,7 @@ from app.constants import (
     BREAK_REMARKS,
     COMPENSATION_REMARK,
     COMPENSATION_REMARKS,
+    GENERAL_WORK_REMARK,
     MAX_FAVORITE_PROJECTS,
     SLOT_MINUTES,
     WORK_REMARKS,
@@ -171,6 +173,8 @@ class BlockEditorDialog(QDialog):
             BLOCK_TYPE_COMPENSATION: [],
         }
         self._selected_remark = self.block.remark
+        self.custom_remark_edit: QLineEdit | None = None
+        self.custom_remark_row: QWidget | None = None
         self.remark_section_widget: QWidget | None = None
 
         self._build_ui()
@@ -399,16 +403,16 @@ class BlockEditorDialog(QDialog):
         self._add_remark_group(
             layout,
             BLOCK_TYPE_WORK,
-            "Allgemein",
-            WORK_REMARKS[:4],
-            columns=4,
+            "Projektleiter",
+            WORK_REMARKS[:3],
+            columns=3,
         )
         self._add_remark_group(
             layout,
             BLOCK_TYPE_WORK,
             "Sys",
-            WORK_REMARKS[4:7],
-            columns=3,
+            WORK_REMARKS[3:7],
+            columns=4,
         )
         self._add_remark_group(
             layout,
@@ -417,6 +421,7 @@ class BlockEditorDialog(QDialog):
             WORK_REMARKS[7:10],
             columns=3,
         )
+        self._add_general_remark_row(layout)
         self._add_remark_group(
             layout,
             BLOCK_TYPE_BREAK,
@@ -470,6 +475,41 @@ class BlockEditorDialog(QDialog):
         section_layout.addLayout(grid)
         parent_layout.addWidget(section)
         self._remark_sections[block_type].append(section)
+
+    def _add_general_remark_row(self, parent_layout: QVBoxLayout) -> None:
+        section = QWidget()
+        section.setObjectName("PanelSurface")
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(6)
+
+        label = QLabel(GENERAL_WORK_REMARK.upper())
+        label.setObjectName("GroupLabel")
+        section_layout.addWidget(label)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+
+        button = QPushButton(self._remark_button_text(GENERAL_WORK_REMARK))
+        button.setObjectName("RemarkButton")
+        button.setCheckable(True)
+        button.clicked.connect(
+            lambda checked=False: self._select_remark(GENERAL_WORK_REMARK)
+        )
+        self._remark_buttons[GENERAL_WORK_REMARK] = button
+        row.addWidget(button)
+
+        self.custom_remark_edit = QLineEdit()
+        self.custom_remark_edit.setObjectName("CustomRemarkEdit")
+        self.custom_remark_edit.setPlaceholderText("Bemerkung")
+        self.custom_remark_edit.setText(self.block.custom_remark)
+        row.addWidget(self.custom_remark_edit, 1)
+
+        section_layout.addLayout(row)
+        parent_layout.addWidget(section)
+        self.custom_remark_row = section
+        self._remark_sections[BLOCK_TYPE_WORK].append(section)
 
     def _build_extra_actions(self) -> QHBoxLayout:
         layout = QHBoxLayout()
@@ -562,6 +602,7 @@ class BlockEditorDialog(QDialog):
         if self._selected_remark:
             self._select_remark(self._selected_remark)
 
+        self._update_custom_remark_visibility()
         self._update_project_button_state(self.project_combo.currentText())
         self.layout().activate()
         self.adjustSize()
@@ -572,6 +613,9 @@ class BlockEditorDialog(QDialog):
         self._selected_remark = remark
         for candidate, button in self._remark_buttons.items():
             button.setChecked(candidate == remark)
+        self._update_custom_remark_visibility()
+        if remark == GENERAL_WORK_REMARK and self.custom_remark_edit is not None:
+            self.custom_remark_edit.setFocus(Qt.OtherFocusReason)
 
     def _set_block_type(self, block_type: str) -> None:
         index = self.block_type_combo.findData(block_type)
@@ -650,6 +694,16 @@ class BlockEditorDialog(QDialog):
             raise ValueError("Bitte eine Bemerkung wählen.")
         if block_type == BLOCK_TYPE_WORK and not project_number:
             raise ValueError("Bitte eine Projektnummer angeben.")
+        custom_remark = (
+            self.custom_remark_edit.text().strip()
+            if self.custom_remark_edit is not None
+            else ""
+        )
+        if block_type == BLOCK_TYPE_WORK and self._selected_remark == GENERAL_WORK_REMARK:
+            if not custom_remark:
+                raise ValueError("Bitte eine allgemeine Bemerkung erfassen.")
+        else:
+            custom_remark = ""
 
         block = TimeBlock(
             id=self.block.id,
@@ -659,12 +713,22 @@ class BlockEditorDialog(QDialog):
             block_type=block_type,
             project_number=project_number,
             remark=self._selected_remark,
+            custom_remark=custom_remark,
         )
 
         if parse_time_text(block.start_time) >= parse_time_text(block.end_time):
             raise ValueError("Startzeit muss vor Endzeit liegen.")
 
         return block
+
+    def _update_custom_remark_visibility(self) -> None:
+        if self.custom_remark_edit is None or self.custom_remark_row is None:
+            return
+        is_work_type = self.block_type_combo.currentData() == BLOCK_TYPE_WORK
+        is_general = is_work_type and self._selected_remark == GENERAL_WORK_REMARK
+        self.custom_remark_row.setVisible(is_work_type)
+        self.custom_remark_edit.setVisible(is_general)
+        self.custom_remark_edit.setEnabled(is_general)
 
     @staticmethod
     def _allowed_remarks_for_type(block_type: str) -> list[str]:
@@ -890,6 +954,17 @@ class BlockEditorDialog(QDialog):
         QComboBox#ProjectCombo QAbstractItemView {
             border: 1px solid #C9D4E5;
             background: #FFFFFF;
+            selection-background-color: #DBEAFE;
+            selection-color: #0F172A;
+        }
+        QLineEdit#CustomRemarkEdit {
+            min-height: 32px;
+            max-height: 32px;
+            border: 1px solid #C9D4E5;
+            border-radius: 10px;
+            padding: 0px 12px;
+            background: #FFFFFF;
+            color: #1E293B;
             selection-background-color: #DBEAFE;
             selection-color: #0F172A;
         }

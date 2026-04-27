@@ -11,17 +11,20 @@ BLOCK_TYPE_WORK = "work"
 BLOCK_TYPE_BREAK = "break"
 BLOCK_TYPE_COMPENSATION = "compensation"
 
+GENERAL_WORK_REMARK = "10: Allgemein"
+
 WORK_REMARKS = [
     "Admin",
     "Projektleitung",
     "Meeting",
-    "Fahrt",
     "Sys. AVOR",
     "Sys. Installation",
     "Sys. Rückbau",
+    "Fahrt",
     "Event Aufbau",
     "Event Abbau",
     "Event Betreuung",
+    GENERAL_WORK_REMARK,
 ]
 
 BREAK_REMARKS = [
@@ -43,6 +46,7 @@ REMARK_COLORS = {
     "Event Aufbau": "#E38DAA",
     "Event Abbau": "#D76088",
     "Event Betreuung": "#B93D68",
+    GENERAL_WORK_REMARK: "#7C3AED",
     "Mittag": "#D62839",
     "Pause": "#9C6644",
     "Kompensation": "#2A9D8F",
@@ -70,6 +74,7 @@ WORK_COST_TYPES = {
     "Event Aufbau": "30.11",
     "Event Abbau": "30.12",
     "Event Betreuung": "30.13",
+    GENERAL_WORK_REMARK: "10",
 }
 
 SLOT_MINUTES = 15

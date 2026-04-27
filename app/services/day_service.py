@@ -108,8 +108,9 @@ class DayService:
     def preview_rows(self, blocks: list[TimeBlock]) -> list[str]:
         rows: list[str] = []
         for block in self.sorted_blocks(blocks):
+            remark_text = block.custom_remark.strip() or block.remark
             rows.append(
-                f"{block.display_project()} | {block.remark} | "
+                f"{block.display_project()} | {remark_text} | "
                 f"{format_messerli_time(block.start_time)} | {format_messerli_time(block.end_time)}"
             )
         return rows

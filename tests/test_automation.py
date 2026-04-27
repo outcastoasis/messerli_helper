@@ -28,6 +28,29 @@ def test_sequence_for_normal_entry() -> None:
     ]
 
 
+def test_sequence_for_general_entry_writes_custom_remark() -> None:
+    block = TimeBlock(
+        date="2026-04-15",
+        start_time="06:30",
+        end_time="10:00",
+        block_type="work",
+        project_number="25344",
+        remark="10: Allgemein",
+        custom_remark="Individuelle Abklaerung",
+    )
+
+    steps = build_steps_for_block(block)
+
+    assert [(step.action, step.value) for step in steps][0:6] == [
+        ("write", "25344"),
+        ("press", "enter"),
+        ("write", "10"),
+        ("press", "enter"),
+        ("write", "Individuelle Abklaerung"),
+        ("press", "enter"),
+    ]
+
+
 def test_sequence_for_break_entry() -> None:
     block = TimeBlock(
         date="2026-04-15",

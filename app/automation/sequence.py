@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.constants import BLOCK_TYPE_BREAK, BLOCK_TYPE_COMPENSATION, WORK_COST_TYPES
+from app.constants import (
+    BLOCK_TYPE_BREAK,
+    BLOCK_TYPE_COMPENSATION,
+    GENERAL_WORK_REMARK,
+    WORK_COST_TYPES,
+)
 from app.models.time_block import TimeBlock
 from app.utils.time_utils import format_messerli_time
 from app.validation.validators import sort_blocks
@@ -57,12 +62,20 @@ def build_steps_for_block(
     if cost_type is None:
         raise ValueError(f"Unbekannte Kostenart für Bemerkung: {block.remark}")
 
+    remark_text = (
+        block.custom_remark.strip()
+        if block.remark == GENERAL_WORK_REMARK
+        else block.remark
+    )
+    if block.remark == GENERAL_WORK_REMARK and not remark_text:
+        raise ValueError("Allgemeine Bemerkung darf nicht leer sein.")
+
     return [
         AutomationStep("write", block.project_number),
         AutomationStep("press", "enter"),
         AutomationStep("write", cost_type),
         AutomationStep("press", "enter"),
-        AutomationStep("write", block.remark),
+        AutomationStep("write", remark_text),
         AutomationStep("press", "enter"),
         AutomationStep("write", from_time),
         AutomationStep("press", "enter"),
