@@ -114,3 +114,25 @@ def test_seed_templates_are_loaded_when_missing() -> None:
         assert loaded[0].project_number == "26001"
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_storage_marks_new_data_dir_as_first_run() -> None:
+    temp_dir = make_test_dir("first-run")
+    data_dir = temp_dir / "data"
+    try:
+        storage = JsonStorage(data_dir)
+
+        assert storage.had_existing_user_data is False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_storage_detects_existing_preferences() -> None:
+    temp_dir = make_test_dir("existing-preferences")
+    try:
+        (temp_dir / "preferences.json").write_text("{}", encoding="utf-8")
+        storage = JsonStorage(temp_dir)
+
+        assert storage.had_existing_user_data is True
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)

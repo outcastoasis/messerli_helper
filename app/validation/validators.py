@@ -35,7 +35,9 @@ def validate_block(block: TimeBlock) -> list[ValidationIssue]:
         BLOCK_TYPE_BREAK,
         BLOCK_TYPE_COMPENSATION,
     }:
-        issues.append(ValidationIssue("invalid_type", "Blocktyp ist ungültig.", block.id))
+        issues.append(
+            ValidationIssue("invalid_type", "Blocktyp ist ungültig.", block.id)
+        )
         return issues
 
     try:
@@ -47,7 +49,9 @@ def validate_block(block: TimeBlock) -> list[ValidationIssue]:
 
     if start_minutes >= end_minutes:
         issues.append(
-            ValidationIssue("time_order", "Startzeit muss vor Endzeit liegen.", block.id)
+            ValidationIssue(
+                "time_order", "Startzeit muss vor Endzeit liegen.", block.id
+            )
         )
 
     if not is_quarter_hour(start_minutes) or not is_quarter_hour(end_minutes):
@@ -124,6 +128,15 @@ def validate_blocks(blocks: list[TimeBlock]) -> list[ValidationIssue]:
                     ValidationIssue(
                         "overlap",
                         f"Blöcke überlappen zwischen {previous.start_time} und {current.end_time}.",
+                        current.id,
+                    )
+                )
+            elif current.start_minutes > previous.end_minutes:
+                issues.append(
+                    ValidationIssue(
+                        "gap",
+                        f"Lücke zwischen {previous.end_time} und {current.start_time}.\n"
+                        "Die Eingabe ist trotzdem gestattet. Ist die Lücke absichtlich?",
                         current.id,
                     )
                 )

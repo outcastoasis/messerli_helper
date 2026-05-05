@@ -15,6 +15,7 @@ class JsonStorage:
         self.days_dir = self.root_dir / "days"
         self.templates_file = self.root_dir / "templates.json"
         self.preferences_file = self.root_dir / "preferences.json"
+        self.had_existing_user_data = self._detect_existing_user_data()
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.days_dir.mkdir(parents=True, exist_ok=True)
 
@@ -49,6 +50,13 @@ class JsonStorage:
     def save_preferences(self, preferences: AppPreferences) -> None:
         self._write_json(self.preferences_file, preferences.to_dict())
 
+    def _detect_existing_user_data(self) -> bool:
+        if not self.root_dir.exists():
+            return False
+        if self.preferences_file.exists() or self.templates_file.exists():
+            return True
+        return self.days_dir.exists() and any(self.days_dir.glob("*.json"))
+
     @staticmethod
     def _read_json(file_path: Path, default):
         if not file_path.exists():
@@ -60,4 +68,3 @@ class JsonStorage:
     def _write_json(file_path: Path, payload) -> None:
         with file_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, ensure_ascii=False)
-

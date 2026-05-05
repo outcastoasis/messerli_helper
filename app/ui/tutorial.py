@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app import __version__
+from app.constants import GENERAL_WORK_REMARK
 from app.models.preferences import AppPreferences
 from app.models.project_template import ProjectTemplate
 from app.models.time_block import TimeBlock
@@ -231,18 +233,20 @@ class TutorialOverlay(QWidget):
         return QRect(top_left, self._target.size())
 
     def _reposition_panel(self) -> None:
+        margin = 22
         self.panel.adjustSize()
-        width = min(max(self.panel.sizeHint().width(), 320), 360)
-        self.panel.resize(width, self.panel.sizeHint().height())
+        available_width = max(260, self.width() - (margin * 2))
+        width = min(max(self.panel.sizeHint().width(), 300), 360, available_width)
+        self.panel.setFixedWidth(width)
+        self.panel.adjustSize()
 
         target_rect = self._target_rect()
-        margin = 22
         gap = 18
         safe_rect = self.rect().adjusted(margin, margin, -margin, -margin)
         if target_rect is None:
             x = self.width() - self.panel.width() - margin
             y = self.height() - self.panel.height() - margin
-            self.panel.move(max(margin, x), max(margin, y))
+            self.panel.move(self._clamp_panel_point(QPoint(x, y), safe_rect))
             return
 
         available_right = safe_rect.right() - target_rect.right()
@@ -275,11 +279,12 @@ class TutorialOverlay(QWidget):
             candidates.append(QPoint(horizontal_anchor, target_rect.bottom() + gap))
 
         for point in candidates:
-            panel_rect = QRect(point, self.panel.size())
+            clamped_point = self._clamp_panel_point(point, safe_rect)
+            panel_rect = QRect(clamped_point, self.panel.size())
             if safe_rect.contains(panel_rect) and not panel_rect.intersects(
                 target_rect.adjusted(-gap, -gap, gap, gap)
             ):
-                self.panel.move(point)
+                self.panel.move(clamped_point)
                 return
 
         # If there is no perfect fit, choose the position with the smallest overlap.
@@ -311,17 +316,26 @@ class TutorialOverlay(QWidget):
         best_point = fallback_candidates[0]
         best_score: tuple[int, int] | None = None
         for point in fallback_candidates:
+            point = self._clamp_panel_point(point, safe_rect)
             panel_rect = QRect(point, self.panel.size())
             intersection = panel_rect.intersected(target_with_gap)
             overlap_area = max(0, intersection.width()) * max(0, intersection.height())
-            distance_score = abs(panel_rect.center().x() - target_rect.center().x()) + abs(
-                panel_rect.center().y() - target_rect.center().y()
-            )
+            distance_score = abs(
+                panel_rect.center().x() - target_rect.center().x()
+            ) + abs(panel_rect.center().y() - target_rect.center().y())
             score = (overlap_area, distance_score)
             if best_score is None or score < best_score:
                 best_score = score
                 best_point = point
-        self.panel.move(best_point)
+        self.panel.move(self._clamp_panel_point(best_point, safe_rect))
+
+    def _clamp_panel_point(self, point: QPoint, safe_rect: QRect) -> QPoint:
+        max_x = max(safe_rect.left(), safe_rect.right() - self.panel.width())
+        max_y = max(safe_rect.top(), safe_rect.bottom() - self.panel.height())
+        return QPoint(
+            min(max(point.x(), safe_rect.left()), max_x),
+            min(max(point.y(), safe_rect.top()), max_y),
+        )
 
 
 class TutorialController(QObject):
@@ -335,7 +349,9 @@ class TutorialController(QObject):
         product_target: Callable[[], QWidget | None],
         template_target: Callable[[], QWidget | None],
         timeline_target: Callable[[], QWidget | None],
+        validation_target: Callable[[], QWidget | None],
         fill_target: Callable[[], QWidget | None],
+        lunch_expenses_target: Callable[[], QWidget | None],
     ) -> None:
         super().__init__(window)
         self.window = window
@@ -346,7 +362,9 @@ class TutorialController(QObject):
         self._product_target = product_target
         self._template_target = template_target
         self._timeline_target = timeline_target
+        self._validation_target = validation_target
         self._fill_target = fill_target
+        self._lunch_expenses_target = lunch_expenses_target
 
         self._steps: list[TutorialStep] = []
         self._current_index = -1
@@ -354,14 +372,16 @@ class TutorialController(QObject):
         self._current_host: QWidget | None = None
         self._demo_dialog: BlockEditorDialog | None = None
         self._running = False
+        self._mode = "full"
 
     def is_running(self) -> bool:
         return self._running
 
-    def start(self) -> None:
+    def start(self, mode: str = "full") -> None:
         if self._running:
             return
         self._running = True
+        self._mode = mode
         self._steps = self._build_steps()
         self._current_index = 0
         self._show_current_step()
@@ -397,8 +417,12 @@ class TutorialController(QObject):
             self._overlay.deleteLater()
             self._overlay = None
         self._current_host = None
-        if mark_seen and not self.preferences.tutorial_completed:
+        if mark_seen and self._mode == "full":
             self.preferences.tutorial_completed = True
+            self.preferences.feature_tutorial_seen_version = __version__
+            self._save_preferences()
+        elif mark_seen and self._mode == "new_features":
+            self.preferences.feature_tutorial_seen_version = __version__
             self._save_preferences()
 
     def _show_current_step(self) -> None:
@@ -417,9 +441,7 @@ class TutorialController(QObject):
             self._overlay = TutorialOverlay(host)
             self._overlay.next_requested.connect(self.next_step)
             self._overlay.previous_requested.connect(self.previous_step)
-            self._overlay.close_requested.connect(
-                lambda: self.finish(mark_seen=True)
-            )
+            self._overlay.close_requested.connect(lambda: self.finish(mark_seen=True))
             self._current_host = host
 
         target = step.target_resolver()
@@ -435,71 +457,10 @@ class TutorialController(QObject):
         self._overlay.raise_()
         self._overlay.setFocus()
 
-    def _build_steps(self) -> list[TutorialStep]:
-        return [
-            TutorialStep(
-                title="Projektvorlagen anlegen",
-                description=(
-                    "Hier legst du eine Projektnummer an, setzt sie bei Bedarf als "
-                    "Favorit und wählst eine Standardbemerkung. Diese Kombination "
-                    "erspart dir später viele Klicks im Zeitblock-Dialog."
-                ),
-                host_resolver=lambda: self.window,
-                target_resolver=self._template_target,
-            ),
-            TutorialStep(
-                title="Zeitslot per Drag erfassen",
-                description=(
-                    "Im Zeitstrahl ziehst du mit der Maus einfach von Start bis Ende. "
-                    "Sobald du loslässt, öffnet sich automatisch der Zeitblock-Dialog."
-                ),
-                host_resolver=lambda: self.window,
-                target_resolver=self._timeline_target,
-            ),
-            TutorialStep(
-                title="Projekt im Pop-up auswählen",
-                description=(
-                    "Im Dialog wählt man das Projekt aus der Liste oder direkt über "
-                    "die Favoriten-Chips. Wenn eine Vorlage eine Standardbemerkung "
-                    "hat, wird sie dabei direkt übernommen."
-                ),
-                host_resolver=lambda: self._demo_dialog,
-                target_resolver=lambda: (
-                    self._demo_dialog.project_section_widget
-                    if self._demo_dialog is not None
-                    else None
-                ),
-                on_enter=lambda controller: controller._ensure_demo_dialog(),
-            ),
-            TutorialStep(
-                title="Bemerkung passend setzen",
-                description=(
-                    "Direkt darunter wählst du die Bemerkung aus. So ist jeder "
-                    "Zeitblock sauber kategorisiert, zum Beispiel Admin, Meeting "
-                    "oder Sys. Installation."
-                ),
-                host_resolver=lambda: self._demo_dialog,
-                target_resolver=lambda: (
-                    self._demo_dialog.remark_section_widget
-                    if self._demo_dialog is not None
-                    else None
-                ),
-            ),
-            TutorialStep(
-                title="Produktivzeit im Blick behalten",
-                description=(
-                    "Unten rechts siehst du jederzeit deine Produktivzeit, das Soll "
-                    "und die Differenz. Damit kannst du vor dem Ausfüllen schnell "
-                    "kontrollieren, ob der Tag stimmig ist."
-                ),
-                host_resolver=lambda: self.window,
-                target_resolver=self._product_target,
-                on_enter=lambda controller: controller._close_demo_dialog(),
-            ),
-        ]
-
     def _build_demo_dialog(self) -> BlockEditorDialog:
-        templates = [ProjectTemplate.from_dict(item.to_dict()) for item in self._templates()]
+        templates = [
+            ProjectTemplate.from_dict(item.to_dict()) for item in self._templates()
+        ]
         if not templates:
             templates = [
                 ProjectTemplate(
@@ -525,7 +486,9 @@ class TutorialController(QObject):
                 }
             )
 
-        sample_template = next((item for item in templates if item.is_favorite), templates[0])
+        sample_template = next(
+            (item for item in templates if item.is_favorite), templates[0]
+        )
         dialog_preferences = AppPreferences.from_dict(self.preferences.to_dict())
         dialog_preferences.last_project_number = sample_template.project_number
         dialog_preferences.last_work_remark = (
@@ -551,6 +514,39 @@ class TutorialController(QObject):
         return dialog
 
     def _build_steps(self) -> list[TutorialStep]:
+        new_feature_steps = [
+            TutorialStep(
+                title="Freie Bemerkung mit 10: Allgemein",
+                description=(
+                    f"Im Zeitblock-Pop-up gibt es jetzt {GENERAL_WORK_REMARK}. "
+                    "Diese Auswahl schreibt als Kostenart 10 und verwendet den Text "
+                    "aus dem Eingabefeld als Bemerkung. Das Feld darf dabei nicht "
+                    "leer bleiben."
+                ),
+                host_resolver=lambda: self._demo_dialog,
+                target_resolver=lambda: (
+                    self._demo_dialog.custom_remark_row
+                    if self._demo_dialog is not None
+                    else None
+                ),
+                on_enter=lambda controller: controller._prepare_general_remark_demo(),
+            ),
+            TutorialStep(
+                title="Mittagspesen automatisch eintragen",
+                description=(
+                    "Die Option ist aktiv, sobald am Tag ein Mittag-Block und eine "
+                    "Fahrt erfasst sind. Beim Ausfüllen wird der Speseneintrag dann "
+                    "direkt mitgeschrieben; du kannst die Auswahl bei Bedarf manuell "
+                    "ändern."
+                ),
+                host_resolver=lambda: self.window,
+                target_resolver=self._lunch_expenses_target,
+                on_enter=lambda controller: controller._close_demo_dialog(),
+            ),
+        ]
+        if self._mode == "new_features":
+            return new_feature_steps
+
         return [
             TutorialStep(
                 title="Projektvorlagen auswählen und bearbeiten",
@@ -601,7 +597,8 @@ class TutorialController(QObject):
                 description=(
                     "Direkt darunter wählst du die Bemerkung aus. So ist jeder "
                     "Zeitblock sauber kategorisiert, zum Beispiel Admin, Meeting "
-                    "oder Sys. Installation."
+                    "oder Sys. Installation. Für freie Texte nutzt du "
+                    f"{GENERAL_WORK_REMARK}; dabei wird Kostenart 10 geschrieben."
                 ),
                 host_resolver=lambda: self._demo_dialog,
                 target_resolver=lambda: (
@@ -610,6 +607,7 @@ class TutorialController(QObject):
                     else None
                 ),
             ),
+            *new_feature_steps,
             TutorialStep(
                 title="Produktivzeit im Blick behalten",
                 description=(
@@ -620,6 +618,16 @@ class TutorialController(QObject):
                 host_resolver=lambda: self.window,
                 target_resolver=self._product_target,
                 on_enter=lambda controller: controller._close_demo_dialog(),
+            ),
+            TutorialStep(
+                title="Validierung prüfen",
+                description=(
+                    "Hier siehst du vor dem Ausfüllen, ob noch etwas korrigiert "
+                    "werden muss. Wenn alles passt, steht hier, dass keine "
+                    "Validierungsfehler vorhanden sind."
+                ),
+                host_resolver=lambda: self.window,
+                target_resolver=self._validation_target,
             ),
             TutorialStep(
                 title="Ausfüllen in Messerli",
@@ -639,6 +647,14 @@ class TutorialController(QObject):
         self._demo_dialog.show()
         self._demo_dialog.raise_()
         self._demo_dialog.activateWindow()
+
+    def _prepare_general_remark_demo(self) -> None:
+        self._ensure_demo_dialog()
+        if self._demo_dialog is None:
+            return
+        self._demo_dialog._select_remark(GENERAL_WORK_REMARK)
+        if self._demo_dialog.custom_remark_edit is not None:
+            self._demo_dialog.custom_remark_edit.setText("Abklärung allgemein")
 
     def _close_demo_dialog(self) -> None:
         if self._demo_dialog is None:

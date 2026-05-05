@@ -15,6 +15,7 @@ class AppPreferences:
     project_badge_assignments: dict[str, int] = field(default_factory=dict)
     skipped_update_version: str = ""
     tutorial_completed: bool = False
+    feature_tutorial_seen_version: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -25,6 +26,7 @@ class AppPreferences:
             "project_badge_assignments": self.project_badge_assignments,
             "skipped_update_version": self.skipped_update_version,
             "tutorial_completed": self.tutorial_completed,
+            "feature_tutorial_seen_version": self.feature_tutorial_seen_version,
         }
 
     @classmethod
@@ -47,4 +49,7 @@ class AppPreferences:
             project_badge_assignments=assignments,
             skipped_update_version=str(payload.get("skipped_update_version", "")),
             tutorial_completed=bool(payload.get("tutorial_completed", False)),
+            feature_tutorial_seen_version=str(
+                payload.get("feature_tutorial_seen_version", "")
+            ),
         )

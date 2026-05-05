@@ -52,6 +52,9 @@ class DayService:
     def save_preferences(self, preferences: AppPreferences) -> None:
         self.storage.save_preferences(preferences)
 
+    def has_existing_user_data(self) -> bool:
+        return self.storage.had_existing_user_data
+
     def sync_project_badge_assignments(
         self, templates: list[ProjectTemplate], preferences: AppPreferences
     ) -> bool:

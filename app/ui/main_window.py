@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
         self.service = service
         self.updater = updater
         self.blocks: list[TimeBlock] = []
+        self._had_existing_user_data = self.service.has_existing_user_data()
         self.templates: list[ProjectTemplate] = self.service.load_templates()
         self.preferences: AppPreferences = self.service.load_preferences()
         self.service.sync_project_badge_assignments(self.templates, self.preferences)
@@ -149,9 +150,15 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
         self._position_day_action_status()
         self._position_lunch_expenses_notice()
-        if self._tutorial_start_scheduled or (
-            not APP_ALWAYS_SHOW_TUTORIAL_ON_START
-            and self.preferences.tutorial_completed
+        should_show_full_tutorial = (
+            APP_ALWAYS_SHOW_TUTORIAL_ON_START or not self.preferences.tutorial_completed
+        )
+        should_show_new_features = (
+            self._had_existing_user_data
+            and not self.preferences.feature_tutorial_seen_version
+        )
+        if self._tutorial_start_scheduled or not (
+            should_show_full_tutorial or should_show_new_features
         ):
             return
         self._tutorial_start_scheduled = True
@@ -307,9 +314,12 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.templates_widget, stretch=4)
 
         validation_group = QGroupBox("Validierung")
+        self.validation_group = validation_group
+        self.validation_group.setObjectName("ValidationGroup")
         validation_layout = QVBoxLayout(validation_group)
         validation_layout.setContentsMargins(10, 14, 10, 10)
         self.validation_list = QListWidget()
+        self.validation_list.setObjectName("ValidationList")
         self.validation_list.setMinimumHeight(100)
         self.validation_list.setMaximumHeight(140)
         validation_layout.addWidget(self.validation_list)
@@ -460,6 +470,16 @@ class MainWindow(QMainWindow):
                 color: #1E293B;
                 selection-background-color: #DBEAFE;
                 selection-color: #0F172A;
+            }
+            QListWidget#ValidationList[hasIssues="true"] {
+                border-color: #FCA5A5;
+                background: #FEF2F2;
+                color: #7F1D1D;
+            }
+            QListWidget#ValidationList[hasIssues="warning"] {
+                border-color: #FCD34D;
+                background: #FFFBEB;
+                color: #78350F;
             }
             QListWidget::item {
                 padding: 6px 4px;
@@ -638,7 +658,9 @@ class MainWindow(QMainWindow):
             product_target=lambda: self.productivity_group,
             template_target=lambda: getattr(self.templates_widget, "form_group", None),
             timeline_target=lambda: self.timeline_scroll,
+            validation_target=lambda: self.validation_group,
             fill_target=lambda: self.fill_button,
+            lunch_expenses_target=lambda: self.lunch_expenses_checkbox,
         )
 
     def _save_preferences_only(self) -> None:
@@ -651,17 +673,25 @@ class MainWindow(QMainWindow):
         if not self.isVisible():
             return
         if (
-            not APP_ALWAYS_SHOW_TUTORIAL_ON_START
-            and self.preferences.tutorial_completed
+            self._had_existing_user_data
+            and not self.preferences.feature_tutorial_seen_version
         ):
+            self.start_new_features_tutorial()
             return
-        self.start_tutorial()
+        if APP_ALWAYS_SHOW_TUTORIAL_ON_START or not self.preferences.tutorial_completed:
+            self.start_tutorial()
 
     def start_tutorial(self) -> None:
         if self.tutorial_controller is None or self.tutorial_controller.is_running():
             return
         self.bring_to_front()
         self.tutorial_controller.start()
+
+    def start_new_features_tutorial(self) -> None:
+        if self.tutorial_controller is None or self.tutorial_controller.is_running():
+            return
+        self.bring_to_front()
+        self.tutorial_controller.start(mode="new_features")
 
     def _on_date_changed(self, qdate: QDate) -> None:
         self._update_calendar_formats(self.calendar_widget, qdate)
@@ -694,12 +724,20 @@ class MainWindow(QMainWindow):
     def _refresh_lists(self) -> None:
         self.timeline.set_blocks(self.blocks)
         issues = self.service.validate_day(self.blocks)
+        blocking_issues = self._blocking_validation_issues(issues)
+        validation_state = (
+            "true" if blocking_issues else "warning" if issues else "false"
+        )
         self.validation_list.clear()
         if issues:
             for issue in issues:
                 self.validation_list.addItem(issue.message)
         else:
             self.validation_list.addItem("Keine Validierungsfehler.")
+        self.validation_list.setProperty("hasIssues", validation_state)
+        self.validation_list.style().unpolish(self.validation_list)
+        self.validation_list.style().polish(self.validation_list)
+        self.validation_list.update()
 
         summary = self.service.productive_time_summary(self.current_date, self.blocks)
         self.productive_time_label.setText(
@@ -719,7 +757,7 @@ class MainWindow(QMainWindow):
             self.productive_difference_label.setStyleSheet("color: #334155;")
 
         self.fill_button.setEnabled(
-            bool(self.blocks) and not issues and self.worker is None
+            bool(self.blocks) and not blocking_issues and self.worker is None
         )
         self.lunch_expenses_checkbox.setEnabled(self.worker is None)
         self._update_lunch_expenses_checkbox()
@@ -1076,11 +1114,21 @@ class MainWindow(QMainWindow):
 
     def _prepare_fill(self) -> None:
         issues = self.service.validate_day(self.blocks)
-        if issues:
+        blocking_issues = self._blocking_validation_issues(issues)
+        if blocking_issues:
             QMessageBox.warning(
-                self, "Validierung", "\n".join(issue.message for issue in issues)
+                self,
+                "Validierung",
+                "\n".join(issue.message for issue in blocking_issues),
             )
             return
+        gap_warnings = self._gap_validation_issues(issues)
+        if gap_warnings:
+            QMessageBox.warning(
+                self,
+                "Validierung",
+                "\n".join(issue.message for issue in gap_warnings),
+            )
 
         self.pending_steps = build_steps_for_blocks(
             self.blocks,
@@ -1101,6 +1149,14 @@ class MainWindow(QMainWindow):
         self.countdown_timer.start(1000)
         if target_window is not None:
             QTimer.singleShot(50, lambda: self._restore_external_window(target_window))
+
+    @staticmethod
+    def _blocking_validation_issues(issues):
+        return [issue for issue in issues if issue.code != "gap"]
+
+    @staticmethod
+    def _gap_validation_issues(issues):
+        return [issue for issue in issues if issue.code == "gap"]
 
     def _countdown_tick(self) -> None:
         self.countdown_remaining -= 1

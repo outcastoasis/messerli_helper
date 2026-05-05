@@ -30,6 +30,16 @@ def test_overlap_is_detected() -> None:
     assert any(issue.code == "overlap" for issue in issues)
 
 
+def test_gap_between_blocks_is_detected() -> None:
+    issues = validate_blocks(
+        [
+            make_block(start_time="08:00", end_time="09:00"),
+            make_block(start_time="09:15", end_time="10:00"),
+        ]
+    )
+    assert any(issue.code == "gap" for issue in issues)
+
+
 def test_empty_project_for_work_is_detected() -> None:
     issues = validate_blocks([make_block(project_number="")])
     assert any(issue.code == "project_required" for issue in issues)
@@ -81,7 +91,7 @@ def test_start_must_be_before_end() -> None:
 
 def test_sorted_blocks_are_accepted() -> None:
     blocks = [
-        make_block(start_time="10:00", end_time="10:30", remark="Admin"),
+        make_block(start_time="09:30", end_time="10:30", remark="Admin"),
         make_block(start_time="08:00", end_time="09:00"),
         make_block(start_time="09:00", end_time="09:30", remark="Sys. AVOR"),
     ]
