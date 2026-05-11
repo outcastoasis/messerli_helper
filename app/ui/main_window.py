@@ -35,7 +35,9 @@ from app.constants import (
     APP_ALWAYS_SHOW_TUTORIAL_ON_START,
     APP_NAME,
     BLOCK_TYPE_BREAK,
+    BLOCK_TYPE_COMPENSATION,
     BLOCK_TYPE_WORK,
+    COMPENSATION_REMARK,
     TIMELINE_DEFAULT_VISIBLE_HOUR,
 )
 from app.models.preferences import AppPreferences
@@ -54,7 +56,7 @@ from app.ui.timeline_widget import DayTimelineWidget
 from app.ui.tutorial import TutorialController
 from app.ui.update_workers import UpdateCheckWorker, UpdateDownloadWorker
 from app.utils.paths import get_bundle_dir
-from app.utils.time_utils import format_duration_minutes
+from app.utils.time_utils import format_duration_minutes, minutes_to_time_text
 from app.utils.windows import (
     activate_window,
     get_foreground_window_handle,
@@ -186,10 +188,12 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(version_label)
         self.update_button = QPushButton("Nach Updates suchen")
         self.update_button.setObjectName("UpdateButton")
+        self.update_button.setCursor(Qt.PointingHandCursor)
         self.update_button.clicked.connect(self._check_for_updates_manually)
         self.update_button.setEnabled(self.updater is not None)
         toolbar.addWidget(self.update_button)
         self.tutorial_button = QPushButton("Einführung")
+        self.tutorial_button.setCursor(Qt.PointingHandCursor)
         self.tutorial_button.clicked.connect(self.start_tutorial)
         toolbar.addWidget(self.tutorial_button)
         toolbar.addStretch()
@@ -206,15 +210,18 @@ class MainWindow(QMainWindow):
         previous_day_button.setObjectName("DayNavButton")
         previous_day_button.setArrowType(Qt.LeftArrow)
         previous_day_button.setAutoRaise(True)
+        previous_day_button.setCursor(Qt.PointingHandCursor)
         previous_day_button.clicked.connect(lambda: self._shift_current_day(-1))
 
         next_day_button = QToolButton()
         next_day_button.setObjectName("DayNavButton")
         next_day_button.setArrowType(Qt.RightArrow)
         next_day_button.setAutoRaise(True)
+        next_day_button.setCursor(Qt.PointingHandCursor)
         next_day_button.clicked.connect(lambda: self._shift_current_day(1))
 
         today_button = QPushButton("Heute")
+        today_button.setCursor(Qt.PointingHandCursor)
         today_button.clicked.connect(
             lambda: self.date_edit.setDate(QDate.currentDate())
         )
@@ -235,6 +242,7 @@ class MainWindow(QMainWindow):
         self.copy_paste_button.setText("Copy/Paste")
         self.copy_paste_button.setPopupMode(QToolButton.InstantPopup)
         self.copy_paste_button.setMenu(copy_paste_menu)
+        self.copy_paste_button.setCursor(Qt.PointingHandCursor)
         self._update_copy_paste_actions()
 
         date_nav_widget = QWidget()
@@ -333,9 +341,19 @@ class MainWindow(QMainWindow):
         self.productive_target_label = QLabel("Soll: 0:00")
         self.productive_difference_label = QLabel("Differenz: 0:00")
         self.productive_difference_label.setObjectName("DifferenceLabel")
+        self.fill_difference_button = QPushButton("Auffüllen")
+        self.fill_difference_button.setObjectName("FillDifferenceButton")
+        self.fill_difference_button.setCursor(Qt.PointingHandCursor)
+        self.fill_difference_button.clicked.connect(
+            self._fill_productive_difference_now
+        )
         productivity_layout.addWidget(self.productive_time_label)
         productivity_layout.addWidget(self.productive_target_label)
-        productivity_layout.addWidget(self.productive_difference_label)
+        difference_layout = QHBoxLayout()
+        difference_layout.setContentsMargins(0, 0, 0, 0)
+        difference_layout.addWidget(self.productive_difference_label, stretch=1)
+        difference_layout.addWidget(self.fill_difference_button)
+        productivity_layout.addLayout(difference_layout)
         sidebar_layout.addWidget(productivity_group)
 
         controls_group = QGroupBox("Automation")
@@ -380,6 +398,7 @@ class MainWindow(QMainWindow):
         )
         self.fill_button = QPushButton("Ausfüllen in Messerli")
         self.fill_button.setObjectName("PrimaryButton")
+        self.fill_button.setCursor(Qt.PointingHandCursor)
         self.fill_button.clicked.connect(self._prepare_fill)
         fill_options_layout = QHBoxLayout()
         fill_options_layout.setContentsMargins(0, 0, 0, 0)
@@ -497,7 +516,7 @@ class MainWindow(QMainWindow):
                 color: #0F172A;
                 font-weight: 500;
             }
-            QPushButton:hover { background: #F8FAFC; border-color: #94A3B8; }
+            QPushButton:hover { background: #F1F5F9; border-color: #64748B; }
             QPushButton:pressed { background: #EEF2FF; }
             QPushButton:checked {
                 background: #DBEAFE;
@@ -514,8 +533,8 @@ class MainWindow(QMainWindow):
                 font-weight: 500;
             }
             QToolButton#ToolbarMenuButton:hover {
-                background: #F8FAFC;
-                border-color: #94A3B8;
+                background: #F1F5F9;
+                border-color: #64748B;
             }
             QToolButton#ToolbarMenuButton:pressed {
                 background: #EEF2FF;
@@ -540,7 +559,7 @@ class MainWindow(QMainWindow):
                 color: #475569;
             }
             QToolButton#DayNavButton:hover {
-                background: #E2E8F0;
+                background: #CBD5E1;
                 color: #0F172A;
             }
             QToolButton#DayNavButton:pressed {
@@ -552,7 +571,10 @@ class MainWindow(QMainWindow):
                 color: #0F172A;
                 font-weight: 600;
             }
-            QPushButton#PrimaryButton:hover { background: #BAE6FD; }
+            QPushButton#PrimaryButton:hover {
+                background: #BAE6FD;
+                border-color: #0284C7;
+            }
             QPushButton:disabled {
                 background: #E2E8F0;
                 color: #94A3B8;
@@ -759,6 +781,12 @@ class MainWindow(QMainWindow):
         self.fill_button.setEnabled(
             bool(self.blocks) and not blocking_issues and self.worker is None
         )
+        self.fill_difference_button.setEnabled(
+            bool(self.blocks)
+            and not blocking_issues
+            and summary.difference_minutes < 0
+            and self.worker is None
+        )
         self.lunch_expenses_checkbox.setEnabled(self.worker is None)
         self._update_lunch_expenses_checkbox()
 
@@ -813,6 +841,10 @@ class MainWindow(QMainWindow):
                 message = "Mittagspesen ist aktiviert aber keine Fahrt wurde eingetragen!"
         if message:
             self._set_lunch_expenses_notice(message)
+
+    def _fill_productive_difference_now(self) -> None:
+        if self._append_productive_difference_compensation_block():
+            self._set_status("Kompensation ergänzt")
 
     def _create_block_from_drag(self, start_time: str, end_time: str) -> None:
         block = TimeBlock(
@@ -1130,7 +1162,12 @@ class MainWindow(QMainWindow):
                 "\n".join(issue.message for issue in gap_warnings),
             )
 
-        if not self._confirm_negative_productive_difference():
+        fill_decision = self._confirm_negative_productive_difference()
+        if fill_decision == "cancel":
+            return
+        if fill_decision == "add_compensation" and not (
+            self._append_productive_difference_compensation_block()
+        ):
             return
 
         self.pending_steps = build_steps_for_blocks(
@@ -1161,24 +1198,70 @@ class MainWindow(QMainWindow):
     def _gap_validation_issues(issues):
         return [issue for issue in issues if issue.code == "gap"]
 
-    def _confirm_negative_productive_difference(self) -> bool:
+    def _confirm_negative_productive_difference(self) -> str:
         summary = self.service.productive_time_summary(self.current_date, self.blocks)
         if summary.difference_minutes >= 0:
-            return True
+            return "fill"
 
         difference = format_duration_minutes(
-            summary.difference_minutes, include_sign=True
+            abs(summary.difference_minutes), include_sign=False
         )
-        result = QMessageBox.warning(
-            self,
-            "Negative Produktivzeit-Differenz",
-            "Die Produktivzeit-Differenz ist negativ.\n\n"
-            f"Differenz: {difference}\n\n"
-            "Möchtest du die Eingabe trotzdem in Messerli starten?",
-            QMessageBox.Ok | QMessageBox.Cancel,
-            QMessageBox.Cancel,
+        message_box = QMessageBox(self)
+        message_box.setWindowTitle("Produktivzeit nicht erreicht")
+        message_box.setIcon(QMessageBox.Warning)
+        message_box.setText(
+            f"Es fehlen noch {difference} Produktivzeit.\n\n"
+            "Soll die fehlende Zeit nach dem letzten Eintrag als "
+            "Überzeit-Kompensation aufgefüllt werden?\n\n"
+            "Danach wird die Eingabe in Messerli gestartet. Bei Abbrechen wird "
+            "nichts ausgefüllt."
         )
-        return result == QMessageBox.Ok
+        yes_button = message_box.addButton("Auffüllen", QMessageBox.AcceptRole)
+        no_button = message_box.addButton("Ohne Auffüllen", QMessageBox.AcceptRole)
+        cancel_button = message_box.addButton("Abbrechen", QMessageBox.RejectRole)
+        message_box.setDefaultButton(cancel_button)
+        message_box.setEscapeButton(cancel_button)
+        message_box.exec()
+
+        clicked_button = message_box.clickedButton()
+        if clicked_button == yes_button:
+            return "add_compensation"
+        if clicked_button == no_button:
+            return "fill"
+        return "cancel"
+
+    def _append_productive_difference_compensation_block(self) -> bool:
+        summary = self.service.productive_time_summary(self.current_date, self.blocks)
+        missing_minutes = abs(summary.difference_minutes)
+        if missing_minutes <= 0:
+            return True
+
+        try:
+            start_minutes = max(block.end_minutes for block in self.blocks)
+        except ValueError:
+            return True
+
+        end_minutes = start_minutes + missing_minutes
+        if end_minutes > 24 * 60:
+            QMessageBox.critical(
+                self,
+                "Kompensation nicht möglich",
+                "Der automatische Kompensationsblock würde über 24:00 hinausgehen.\n\n"
+                "Bitte die Zeiten manuell prüfen.",
+            )
+            return False
+
+        compensation_block = TimeBlock(
+            date=self.current_date,
+            start_time=minutes_to_time_text(start_minutes),
+            end_time=minutes_to_time_text(end_minutes),
+            block_type=BLOCK_TYPE_COMPENSATION,
+            remark=COMPENSATION_REMARK,
+        )
+        self.blocks.append(compensation_block)
+        self._persist_current_day()
+        self._refresh_lists()
+        return True
 
     def _countdown_tick(self) -> None:
         self.countdown_remaining -= 1
