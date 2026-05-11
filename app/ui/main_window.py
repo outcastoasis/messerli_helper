@@ -1130,6 +1130,9 @@ class MainWindow(QMainWindow):
                 "\n".join(issue.message for issue in gap_warnings),
             )
 
+        if not self._confirm_negative_productive_difference():
+            return
+
         self.pending_steps = build_steps_for_blocks(
             self.blocks,
             include_lunch_expenses=self.lunch_expenses_checkbox.isChecked(),
@@ -1157,6 +1160,25 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _gap_validation_issues(issues):
         return [issue for issue in issues if issue.code == "gap"]
+
+    def _confirm_negative_productive_difference(self) -> bool:
+        summary = self.service.productive_time_summary(self.current_date, self.blocks)
+        if summary.difference_minutes >= 0:
+            return True
+
+        difference = format_duration_minutes(
+            summary.difference_minutes, include_sign=True
+        )
+        result = QMessageBox.warning(
+            self,
+            "Negative Produktivzeit-Differenz",
+            "Die Produktivzeit-Differenz ist negativ.\n\n"
+            f"Differenz: {difference}\n\n"
+            "Möchtest du die Eingabe trotzdem in Messerli starten?",
+            QMessageBox.Ok | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        return result == QMessageBox.Ok
 
     def _countdown_tick(self) -> None:
         self.countdown_remaining -= 1
@@ -1206,14 +1228,19 @@ class MainWindow(QMainWindow):
         dialog.setDefaultButton(QMessageBox.Ok)
 
         tracked_window: dict[str, int | None] = {"handle": None}
+        auto_confirmed = {"value": False}
         tracker = QTimer(dialog)
         tracker.setInterval(150)
 
         def capture_external_window() -> None:
+            if auto_confirmed["value"]:
+                return
             window_handle = get_foreground_window_handle()
             if window_handle is None or is_current_process_window(window_handle):
                 return
             tracked_window["handle"] = window_handle
+            auto_confirmed["value"] = True
+            dialog.done(QMessageBox.Ok)
 
         tracker.timeout.connect(capture_external_window)
         dialog.finished.connect(tracker.stop)
